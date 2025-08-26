@@ -1,0 +1,15 @@
+# ShellCheck configuration for keegees
+# Professional GNOME keybinding management tool
+
+# Disable SC2059 (printf format string variables) for this terminal UI application
+# Rationale: keegees uses extensive colored printf output with controlled color variables
+# (C_PRIMARY, C_RESET, etc.) that contain only ANSI escape sequences, never user input
+# or untrusted format specifiers. This is a standard pattern in terminal applications.
+# Example: printf "${C_PRIMARY}text${C_RESET}\n" is safe and idiomatic for UI apps.
+disable=SC2059
+
+# Enable all other checks to maintain code quality:
+# SC2034 (unused variables) - Keep enabled to identify truly unused definitions
+# SC2155 (declare and assign) - Keep enabled for proper error handling
+# SC2046 (quote command substitution) - Evaluate case-by-case for character repetition idioms
+# SC2207 (array assignment) - Keep enabled to prefer mapfile over IFS manipulation

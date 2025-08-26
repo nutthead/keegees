@@ -1,0 +1,1889 @@
+#!/bin/bash
+
+# ██████████████████████████████████████████████████████████████████████████████
+# ██                       keegees MAINTAINER GUIDE                           ██
+# ██                                                                          ██
+# ██  PURPOSE: Professional GNOME keybinding management tool with intelligent ██
+# ██  filtering, dual data source support (INI/gsettings), and comprehensive  ██
+# ██  safety mechanisms. Provides roundtrip dconf export/import capabilities  ██
+# ██  with beautiful terminal interfaces and animation support.               ██
+# ██                                                                          ██
+# ██  ARCHITECTURE OVERVIEW:                                                  ██
+# ██  • Schema-based keybinding detection using hardcoded whitelists          ██
+# ██  • Dual data source architecture: INI files + live gsettings/dconf       ██
+# ██  • POSIX-compliant arithmetic using 'bc' instead of bash $((...))        ██
+# ██  • Progressive terminal capability detection (24-bit → 8-bit colors)     ██
+# ██  • Extension-aware filtering for popular GNOME extensions                ██
+# ██                                                                          ██
+# ██  CRITICAL DESIGN DECISIONS & RATIONALE:                                  ██
+# ██                                                                          ██
+# ██  1. SCHEMA WHITELISTING (lines ~342-349, ~681-688, ~1089-1096):          ██
+# ██     Explicit hardcoded schema list instead of auto-discovery prevents    ██
+# ██     false positives. GNOME uses 'as' (string array) type for both        ██
+# ██     keybindings AND configuration arrays - type detection alone cannot   ██
+# ██     distinguish them. Whitelist ensures only legitimate keybinding       ██
+# ██     schemas are processed, maintaining data integrity and user clarity.  ██
+# ██                                                                          ██
+# ██  2. UBUNTU TILING ASSISTANT SPECIAL FILTERING (lines ~377-391, ~769-802):██
+# ██     This extension has 87 total settings but only 12 are keybindings     ██
+# ██     visible in Ubuntu Settings UI. Without filtering, users see noise    ██
+# ██     (colors, sizes, boolean flags). Case statement filters to exact      ██
+# ██     keys matching Ubuntu Settings interface, preserving usability.       ██
+# ██                                                                          ██
+# ██  3. POSIX COMPLIANCE WITH 'bc' (lines ~144, ~155, ~163, ~167, ~190):     ██
+# ██     Uses 'bc' for arithmetic instead of bash's $((...)). Ensures         ██
+# ██     compatibility across different Unix shells and systems. Critical     ██
+# ██     for animation frame calculations and progress indicators.            ██
+# ██                                                                          ██
+# ██  4. DUAL DATA SOURCE STRATEGY:                                           ██
+# ██     • INI files: Human-readable, version-controllable, portable          ██
+# ██     • gsettings/dconf: Live system state, atomic operations              ██
+# ██     Allows workflow flexibility: edit files OR live system settings.     ██
+# ██                                                                          ██
+# ██  5. TERMINAL CAPABILITY DETECTION (lines ~30-74):                        ██
+# ██     Progressive fallback: 24-bit → 256 → 16 → 8 colors. Ensures          ██
+# ██     beautiful output on modern terminals while maintaining basic         ██
+# ██     functionality on legacy systems. Animation disabled gracefully       ██
+# ██     when Unicode/color support unavailable.                              ██
+# ██                                                                          ██
+# ██  6. dconf vs gsettings USAGE PATTERNS:                                   ██
+# ██     • gsettings: Individual key operations, extension queries            ██
+# ██     • dconf: Bulk operations, dump/load, atomic schema resets            ██
+# ██     Each tool optimized for specific use cases in GNOME ecosystem.       ██
+# ██                                                                          ██
+# ██  EXTENSION SUPPORT PHILOSOPHY:                                           ██
+# ██  Extensions receive intelligent filtering rather than blanket inclusion. ██
+# ██  Each extension requires manual analysis to identify actual keybinding   ██
+# ██  keys vs configuration settings. This prevents UI pollution while        ██
+# ██  supporting popular extensions like Ubuntu Tiling Assistant.             ██
+# ██                                                                          ██
+# ██  ERROR HANDLING STRATEGY:                                                ██
+# ██  • set -euo pipefail: Strict error handling with pipeline propagation    ██
+# ██  • Comprehensive validation at function entry points                     ██
+# ██  • Graceful degradation for missing dependencies (dconf, gsettings)      ██
+# ██  • Interactive confirmations for destructive operations                  ██
+# ██  • Atomic operations using temporary files with cleanup                  ██
+# ██                                                                          ██
+# ██  MAINTAINER NOTES:                                                       ██
+# ██  • Adding new extensions: Analyze schema, identify keybinding keys,      ██
+# ██    add filtering logic in query_system_settings() and cmd_dump()         ██
+# ██  • Animation issues: Check terminal capability detection and Unicode     ██
+# ██    support. Verify 'bc' availability for frame calculations              ██
+# ██  • Schema changes: Update whitelists in all three locations when         ██
+# ██    GNOME introduces new keybinding schemas                               ██
+# ██  • Color problems: Verify $COLORTERM, $TERM detection logic and          ██
+# ██    tput color count accuracy across different terminal emulators         ██
+# ██                                                                          ██
+# ██████████████████████████████████████████████████████████████████████████████
+
+# ╭────────────────────────────────────────────────────────────────────────────────╮
+# │                             🔮 KEYBIND MANAGER 🔮                              │
+# │                 GNOME keybinding management with elegant visuals               │
+# │                      For gsettings/dconf desktop environments                  │
+# ╰────────────────────────────────────────────────────────────────────────────────╯
+
+set -euo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+#                          CONSTANTS
+# ══════════════════════════════════════════════════════════════════
+
+readonly SCRIPT_NAME="keybind"
+readonly VERSION="1.0.0"
+
+# Animation sequences for different states
+readonly SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+readonly WAVE_FRAMES=('▁' '▂' '▃' '▄' '▅' '▆' '▇' '█' '▇' '▆' '▅' '▄' '▃' '▂')
+readonly WAVE_ZERO='⠀'  # Unicode BRAILLE PATTERN BLANK for consistent width
+readonly PULSE_FRAMES=('◐' '◓' '◑' '◒')
+
+# ══════════════════════════════════════════════════════════════════
+#                      TERMINAL CAPABILITIES
+# ══════════════════════════════════════════════════════════════════
+
+detect_terminal_capabilities() {
+    local capabilities=()
+
+    # Detect color support
+    if [[ "${COLORTERM:-}" == "truecolor" ]] || [[ "${TERM:-}" == *"24bit"* ]]; then
+        COLORS=16777216  # 24-bit
+        capabilities+=("24-bit colors")
+    elif command -v tput >/dev/null && [[ $(tput colors 2>/dev/null || echo 0) -ge 256 ]]; then
+        COLORS=256
+        capabilities+=("256 colors")
+    elif [[ $(tput colors 2>/dev/null || echo 0) -ge 16 ]]; then
+        COLORS=16
+        capabilities+=("16 colors")
+    else
+        COLORS=8
+        capabilities+=("8 colors")
+    fi
+
+    # Detect Unicode support
+    if [[ "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" == *UTF-8* ]] || [[ "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" == *utf8* ]]; then
+        UNICODE=true
+        capabilities+=("Unicode")
+    else
+        UNICODE=false
+    fi
+
+    # Detect terminal size
+    COLS=$(tput cols 2>/dev/null || echo 80)
+    LINES=$(tput lines 2>/dev/null || echo 24)
+    capabilities+=("${COLS}x${LINES}")
+
+    # Detect advanced terminal features
+    case "${TERM_PROGRAM:-}" in
+        "ghostty"|"kitty"|"wezterm"|"Alacritty")
+            capabilities+=("Modern terminal: ${TERM_PROGRAM}")
+            ;;
+        *)
+            # No special handling needed for basic terminals
+            ;;
+    esac
+
+    # Store capabilities for later use
+    TERMINAL_CAPABILITIES=("${capabilities[@]}")
+}
+
+# ══════════════════════════════════════════════════════════════════
+#                         COLOR SCHEMES
+# ══════════════════════════════════════════════════════════════════
+
+setup_colors() {
+    if [[ $COLORS -ge 16777216 ]]; then
+        # 24-bit color palette - Cyberpunk theme
+        readonly C_PRIMARY='\033[38;2;138;43;226m'      # Purple
+        readonly C_SECONDARY='\033[38;2;255;20;147m'     # Deep pink
+        readonly C_SUCCESS='\033[38;2;57;255;20m'        # Neon green
+        readonly C_WARNING='\033[38;2;255;165;0m'        # Orange
+        readonly C_ERROR='\033[38;2;255;69;0m'           # Red orange
+        readonly C_INFO='\033[38;2;0;191;255m'           # Cyan
+        readonly C_ACCENT='\033[38;2;255;215;0m'         # Gold
+        readonly C_MUTED='\033[38;2;108;108;108m'        # Gray
+        # Background colors removed (unused)
+    elif [[ $COLORS -ge 256 ]]; then
+        # 256 color fallback
+        readonly C_PRIMARY='\033[38;5;93m'     # Purple
+        readonly C_SECONDARY='\033[38;5;198m'  # Pink
+        readonly C_SUCCESS='\033[38;5;82m'     # Green
+        readonly C_WARNING='\033[38;5;214m'    # Orange
+        readonly C_ERROR='\033[38;5;196m'      # Red
+        readonly C_INFO='\033[38;5;51m'        # Cyan
+        readonly C_ACCENT='\033[38;5;226m'     # Yellow
+        readonly C_MUTED='\033[38;5;244m'      # Gray
+        # Background colors removed (unused)
+    else
+        # Basic color fallback
+        readonly C_PRIMARY='\033[35m'    # Magenta
+        readonly C_SECONDARY='\033[95m'  # Bright magenta
+        readonly C_SUCCESS='\033[32m'    # Green
+        readonly C_WARNING='\033[33m'    # Yellow
+        readonly C_ERROR='\033[31m'      # Red
+        readonly C_INFO='\033[36m'       # Cyan
+        readonly C_ACCENT='\033[93m'     # Bright yellow
+        readonly C_MUTED='\033[90m'      # Gray
+        # Background colors removed (unused)
+    fi
+
+    # Control sequences (only used ones kept)
+    readonly C_RESET='\033[0m'
+    readonly C_BOLD='\033[1m'
+    readonly C_DIM='\033[2m'
+}
+
+# ══════════════════════════════════════════════════════════════════
+#                        ANIMATION FUNCTIONS
+# ══════════════════════════════════════════════════════════════════
+
+spinner() {
+    local message="$1"
+    local delay="${2:-0.1}"
+    local frame=0
+
+    while true; do
+        printf "\r${C_PRIMARY}${SPINNER_FRAMES[$frame]}${C_RESET} ${C_BOLD}%s${C_RESET}" "$message"
+        frame=$(echo "($frame + 1) % ${#SPINNER_FRAMES[@]}" | bc)
+        sleep "$delay"
+    done
+}
+
+progress_bar() {
+    local current="$1"
+    local total="$2"
+    local width="${3:-50}"
+    local message="${4:-Processing}"
+
+    local percent
+    local filled
+    local empty
+    percent=$(echo "$current * 100 / $total" | bc)
+    filled=$(echo "$current * $width / $total" | bc)
+    empty=$(echo "$width - $filled" | bc)
+
+    local bar=""
+    i=0
+    while [ "$i" -lt "$filled" ]; do
+        bar+="▰"
+        i=$(echo "$i + 1" | bc)
+    done
+    i=0
+    while [ "$i" -lt "$empty" ]; do
+        bar+="▱"
+        i=$(echo "$i + 1" | bc)
+    done
+
+    printf "\r${C_INFO}%s${C_RESET} [${C_SUCCESS}%s${C_RESET}] ${C_ACCENT}%3d%%${C_RESET}" \
+           "$message" "$bar" "$percent"
+}
+
+wave_effect() {
+    local text="$1"
+    local cycles="${2:-3}"
+    local delay="${3:-0.05}"
+
+    # Start with invisible/whitespace character (position 0)
+    printf "\r${C_PRIMARY}%s${C_RESET} ${C_BOLD}%s${C_RESET}" "$WAVE_ZERO" "$text"
+    sleep "$delay"
+
+    cycle=0
+    while [ "$cycle" -lt "$cycles" ]; do
+        for frame in "${WAVE_FRAMES[@]}"; do
+            printf "\r${C_PRIMARY}%s${C_RESET} ${C_BOLD}%s${C_RESET}" "$frame" "$text"
+            sleep "$delay"
+        done
+        cycle=$(echo "$cycle + 1" | bc)
+    done
+
+    # End with invisible/whitespace character (back to position 0)
+    printf "\r${C_PRIMARY}%s${C_RESET} ${C_BOLD}%s${C_RESET}" "$WAVE_ZERO" "$text"
+    sleep "$delay"
+    echo
+}
+
+pulse_text() {
+    local text="$1"
+    local cycles="${2:-5}"
+    local delay="${3:-0.2}"
+
+    cycle=0
+    while [ "$cycle" -lt "$cycles" ]; do
+        for frame in "${PULSE_FRAMES[@]}"; do
+            printf "\r${C_SECONDARY}%s${C_RESET} ${C_BOLD}%s${C_RESET}" "$frame" "$text"
+            sleep "$delay"
+        done
+        cycle=$(echo "$cycle + 1" | bc)
+    done
+    echo
+}
+
+# ══════════════════════════════════════════════════════════════════
+#                         UTILITY FUNCTIONS
+# ══════════════════════════════════════════════════════════════════
+
+log() {
+    local level="$1"
+    shift
+    local message="$*"
+    local timestamp
+    timestamp=$(date '+%H:%M:%S')
+
+    case "$level" in
+        "SUCCESS")
+            printf "${C_SUCCESS}✓${C_RESET} ${C_DIM}[%s]${C_RESET} %s\n" "$timestamp" "$message" ;;
+        "ERROR")
+            printf "${C_ERROR}✗${C_RESET} ${C_DIM}[%s]${C_RESET} %s\n" "$timestamp" "$message" ;;
+        "WARNING")
+            printf "${C_WARNING}⚠${C_RESET} ${C_DIM}[%s]${C_RESET} %s\n" "$timestamp" "$message" ;;
+        "INFO")
+            printf "${C_INFO}ℹ${C_RESET} ${C_DIM}[%s]${C_RESET} %s\n" "$timestamp" "$message" ;;
+        *)
+            printf "${C_MUTED}•${C_RESET} ${C_DIM}[%s]${C_RESET} %s\n" "$timestamp" "$message" ;;
+    esac
+}
+
+show_header() {
+    if [[ $UNICODE == true ]]; then
+        printf "\n${C_PRIMARY}"
+        printf "╭──────────────────────────────────────────────────────────────────────────────╮\n"
+        printf "│${C_ACCENT}                             🔮 KEYBIND MANAGER 🔮                            ${C_PRIMARY}│\n"
+        printf "│${C_SECONDARY}                      GNOME keybinding management system                      ${C_PRIMARY}│\n"
+        printf "│${C_INFO}                                Version ${VERSION}                                 ${C_PRIMARY}│\n"
+        printf "╰──────────────────────────────────────────────────────────────────────────────╯${C_RESET}\n"
+    else
+        printf "\n${C_PRIMARY}============================================${C_RESET}\n"
+        printf "${C_ACCENT}         KEYBIND MANAGER v${VERSION}${C_RESET}\n"
+        printf "${C_SECONDARY}   GNOME keybinding management system${C_RESET}\n"
+        printf "${C_PRIMARY}============================================${C_RESET}\n"
+    fi
+
+    # Show terminal capabilities if in verbose mode
+    if [[ "${VERBOSE:-false}" == true ]]; then
+        printf "\n${C_MUTED}Terminal capabilities: %s${C_RESET}\n" \
+               "$(IFS=', '; echo "${TERMINAL_CAPABILITIES[*]}")"
+    fi
+    printf "\n"
+}
+
+# ══════════════════════════════════════════════════════════════════
+#                    CONFIGURATION FUNCTIONS
+# ══════════════════════════════════════════════════════════════════
+
+
+# Query system settings using gsettings
+query_system_settings() {
+    # Define the official GNOME keybinding schemas
+    # This whitelist approach is the only reliable method to distinguish
+    # keybindings from configuration arrays (both use type 'as')
+    local keybinding_schemas=(
+        "org.gnome.desktop.wm.keybindings"              # Window manager keybindings
+        "org.gnome.shell.keybindings"                   # Shell-specific keybindings
+        "org.gnome.mutter.keybindings"                  # Mutter compositor keybindings
+        "org.gnome.mutter.wayland.keybindings"          # Wayland-specific keybindings
+        "org.gnome.settings-daemon.plugins.media-keys" # Media key shortcuts
+        "org.gnome.shell.extensions.tiling-assistant"  # Ubuntu Tiling Assistant extension
+    )
+
+    # Get all available schemas and filter to only those that exist
+    local available_schemas
+    available_schemas=$(gsettings list-schemas | sort)
+    local existing_keybinding_schemas=()
+
+    for schema in "${keybinding_schemas[@]}"; do
+        if echo "$available_schemas" | grep -q "^${schema}$"; then
+            existing_keybinding_schemas+=("$schema")
+        fi
+    done
+
+    # Output sections first - only keybinding schemas
+    for schema in "${existing_keybinding_schemas[@]}"; do
+        echo "SECTION:$schema"
+    done
+
+    # Output bindings for each keybinding schema
+    for schema in "${existing_keybinding_schemas[@]}"; do
+        # Get all keys for this schema
+        local all_keys
+        all_keys=$(gsettings list-keys "$schema" 2>/dev/null || true)
+
+        if [[ -n "$all_keys" ]]; then
+            while IFS= read -r key; do
+                [[ -z "$key" ]] && continue
+
+                # Special filtering for Ubuntu Tiling Assistant extension
+                if [[ "$schema" == "org.gnome.shell.extensions.tiling-assistant" ]]; then
+                    # Only include specific keybinding keys that appear in Ubuntu Settings
+                    case "$key" in
+                        tile-edit-mode|tile-maximize|restore-window|center-window|\
+                        tile-top-half|tile-bottom-half|tile-left-half|tile-right-half|\
+                        tile-topleft-quarter|tile-topright-quarter|\
+                        tile-bottomleft-quarter|tile-bottomright-quarter)
+                            # This is a legitimate keybinding key
+                            ;;
+                        *)
+                            # Skip non-keybinding configuration keys
+                            continue
+                            ;;
+                    esac
+                fi
+
+                # Since we're only processing known keybinding schemas,
+                # ALL keys in these schemas are legitimate keybindings
+                # No need for type checking - everything here is a keybinding
+                local value
+                value=$(gsettings get "$schema" "$key" 2>/dev/null || echo "''")
+
+                # Clean up the value (remove extra quotes, etc.)
+                value=$(echo "$value" | sed "s/^'//; s/'$//")
+
+                echo "BINDING:$schema|$key=$value"
+            done <<< "$all_keys"
+        fi
+    done
+}
+
+
+# Helper function to delete keybinding from system settings
+delete_system_keybinding() {
+    local target_schema="$1"
+    local target_key="$2"
+
+    # Use gsettings reset to restore default value
+    if gsettings reset "$target_schema" "$target_key" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Initialize everything
+init() {
+    detect_terminal_capabilities
+    setup_colors
+}
+
+# ══════════════════════════════════════════════════════════════════
+#                          MAIN COMMANDS
+# ══════════════════════════════════════════════════════════════════
+
+cmd_ls() {
+    local dry_run=false
+    local hide_empty_schemas=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --hide-empty-schemas)
+                hide_empty_schemas=true
+                shift
+                ;;
+            --help|-h)
+                help_ls
+                return 0
+                ;;
+            *)
+                log "ERROR" "Unknown argument: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    show_header
+
+    # Check gsettings availability
+    if ! command -v gsettings >/dev/null 2>&1; then
+        log "ERROR" "gsettings command not found. Install glib2-dev or similar package."
+        return 1
+    fi
+
+    wave_effect "Querying system settings..." 2
+
+    # Show beautiful keybinding list
+    printf "${C_BOLD}${C_ACCENT}📋 System Keybindings${C_RESET} ${C_MUTED}(from gsettings)${C_RESET}\n"
+    # shellcheck disable=SC2046  # Intentional word splitting for character repetition idiom
+    printf "${C_MUTED}%s${C_RESET}\n" "$(printf '─%.0s' $(seq 1 $(echo "$COLS - 10" | bc)))"
+
+    local count=0
+    local parse_output=$(query_system_settings)
+
+    # First pass: collect all schemas and their bindings
+    local -a all_schemas
+    declare -A schema_bindings
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^SECTION:(.+)$ ]]; then
+            all_schemas+=("${BASH_REMATCH[1]}")
+        elif [[ "$line" =~ ^BINDING:(.+)=(.*)$ ]]; then
+            local full_binding="${BASH_REMATCH[1]}"
+            local value="${BASH_REMATCH[2]}"
+
+            # Split schema and key using pipe separator
+            if [[ "$full_binding" =~ ^([^|]+)\|(.+)$ ]]; then
+                local binding_schema="${BASH_REMATCH[1]}"
+                local key="${BASH_REMATCH[2]}"
+
+                # Store binding for this schema
+                if [[ -z "${schema_bindings[$binding_schema]:-}" ]]; then
+                    schema_bindings[$binding_schema]="$key|$value"
+                else
+                    schema_bindings[$binding_schema]+=$'\n'"$key|$value"
+                fi
+            fi
+        fi
+    done <<< "$parse_output"
+
+    # Sort schemas alphabetically
+    mapfile -t all_schemas < <(printf '%s\n' "${all_schemas[@]}" | sort)
+
+    # Separate empty and non-empty schemas
+    local -a empty_schemas=()
+    local -a non_empty_schemas=()
+
+    for schema in "${all_schemas[@]}"; do
+        if [[ -z "${schema_bindings[$schema]:-}" ]]; then
+            empty_schemas+=("$schema")
+        else
+            non_empty_schemas+=("$schema")
+        fi
+    done
+
+    # Calculate maximum key length for alignment
+    local max_key_length=0
+    for schema in "${non_empty_schemas[@]}"; do
+        if [[ -n "${schema_bindings[$schema]:-}" ]]; then
+            while IFS='|' read -r key value; do
+                local key_length=${#key}
+                if [ "$key_length" -gt "$max_key_length" ]; then
+                    max_key_length="$key_length"
+                fi
+            done <<< "${schema_bindings[$schema]}"
+        fi
+    done
+
+    # Display empty schemas first (alphabetically, no empty lines between)
+    if [[ "${#empty_schemas[@]}" -gt 0 && "$hide_empty_schemas" == false ]]; then
+        printf "\n"
+        for schema in "${empty_schemas[@]:-}"; do
+            printf "${C_MUTED}📂 ${C_BOLD}%s${C_RESET}\n" "$schema"
+        done
+    fi
+
+    # Display non-empty schemas (alphabetically, with sorted keybindings)
+    for schema in "${non_empty_schemas[@]}"; do
+        printf "\n${C_PRIMARY}📁 ${C_BOLD}%s${C_RESET}\n" "$schema"
+
+        # Sort keybindings for this schema alphabetically
+        local sorted_bindings
+        sorted_bindings=$(echo "${schema_bindings[$schema]}" | sort)
+
+        while IFS='|' read -r key value; do
+            # Format the binding nicely with dynamic width
+            printf "  ${C_SUCCESS}⌨${C_RESET}  ${C_BOLD}%-*s${C_RESET} ${C_INFO}→${C_RESET} ${C_ACCENT}%s${C_RESET}\n" \
+                   "$max_key_length" "$key" "$value"
+            count=$(echo "$count + 1" | bc)
+        done <<< "$sorted_bindings"
+    done
+
+    printf "\n${C_SUCCESS}✨ Total keybindings: ${C_BOLD}%d${C_RESET}\n\n" "$count"
+}
+
+cmd_dump() {
+    local dry_run=false
+    local output_file=""
+    local force=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --force)
+                force=true
+                shift
+                ;;
+            --help|-h)
+                help_dump
+                return 0
+                ;;
+            *)
+                if [[ -z "$output_file" ]]; then
+                    output_file="$1"
+                    shift
+                else
+                    log "ERROR" "Unknown argument: $1"
+                    return 1
+                fi
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [[ -z "$output_file" ]]; then
+        log "ERROR" "You must specify an output filename"
+        printf "${C_MUTED}Use: ${C_PRIMARY}%s dump --help${C_RESET} for usage information\n" "$SCRIPT_NAME"
+        return 1
+    fi
+
+    show_header
+
+    # Check dependencies
+    if ! command -v dconf >/dev/null 2>&1; then
+        log "ERROR" "dconf command not found. Install dconf package."
+        return 1
+    fi
+
+    # Check if file exists and handle overwrite
+    if [[ -f "$output_file" && "$force" == false ]]; then
+        printf "${C_BOLD}${C_WARNING}⚠️ File Exists${C_RESET}\n"
+        printf "Output file ${C_ACCENT}%s${C_RESET} already exists.\n" "$output_file"
+        printf "Overwrite? [y/N]: "
+        read -r confirmation
+        case "$confirmation" in
+            [yY]|[yY][eE][sS])
+                printf "${C_SUCCESS}✓${C_RESET} Proceeding with overwrite...\n\n"
+                ;;
+            *)
+                printf "${C_WARNING}✗${C_RESET} Operation cancelled\n"
+                return 0
+                ;;
+        esac
+    fi
+
+    # Define the official GNOME keybinding schemas (matching query_system_settings)
+    local keybinding_schemas=(
+        "org.gnome.desktop.wm.keybindings"
+        "org.gnome.shell.keybindings"
+        "org.gnome.mutter.keybindings"
+        "org.gnome.mutter.wayland.keybindings"
+        "org.gnome.settings-daemon.plugins.media-keys"
+        "org.gnome.shell.extensions.tiling-assistant"
+    )
+
+    # Get all available schemas and filter to only those that exist
+    local available_schemas
+    available_schemas=$(dconf list-schemas 2>/dev/null || gsettings list-schemas | sort)
+    local existing_keybinding_schemas=()
+
+    for schema in "${keybinding_schemas[@]}"; do
+        if echo "$available_schemas" | grep -q "^${schema}$"; then
+            existing_keybinding_schemas+=("$schema")
+        fi
+    done
+
+    # Show what will be dumped
+    printf "\n${C_BOLD}${C_INFO}📤 Dump Operation${C_RESET}\n"
+    printf "  ${C_MUTED}Output:${C_RESET}  ${C_ACCENT}%s${C_RESET}\n" "$output_file"
+    printf "  ${C_MUTED}Format:${C_RESET}  ${C_PRIMARY}dconf (native GNOME)${C_RESET}\n"
+    printf "  ${C_MUTED}Schemas:${C_RESET} ${C_PRIMARY}%d keybinding schemas${C_RESET}\n\n" "${#existing_keybinding_schemas[@]}"
+
+    # List schemas that will be dumped
+    printf "${C_BOLD}${C_INFO}📋 Schemas to Dump:${C_RESET}\n"
+    for schema in "${existing_keybinding_schemas[@]}"; do
+        printf "  ${C_SUCCESS}▸${C_RESET} ${C_PRIMARY}%s${C_RESET}\n" "$schema"
+    done
+    printf "\n"
+
+    # Dry run mode - just show what would be done
+    if [[ "$dry_run" == true ]]; then
+        printf "${C_BOLD}${C_INFO}🔍 Dry Run Mode${C_RESET}\n"
+        printf "  ${C_SUCCESS}✓${C_RESET} Would dump keybindings using dconf dump commands\n"
+        printf "  ${C_SUCCESS}✓${C_RESET} Would create file: ${C_ACCENT}%s${C_RESET}\n" "$output_file"
+        return 0
+    fi
+
+    # Perform the dump operation
+    wave_effect "Dumping keybindings..." 2
+
+    local dump_errors=0
+    local temp_file
+    temp_file=$(mktemp)
+
+    # Add header comment to the dump file
+    cat > "$temp_file" <<EOF
+# GNOME Keybindings Configuration Dump
+# Generated by keegees on $(date)
+#
+# This file contains GNOME keybinding configurations in dconf format.
+# To restore these keybindings, use: keegees sync <filename>
+#
+# Format: dconf key-file format with GVariant values
+# More info: https://developer.gnome.org/dconf/
+
+EOF
+
+    # Dump each keybinding schema
+    for schema in "${existing_keybinding_schemas[@]}"; do
+        printf "  ${C_INFO}Dumping${C_RESET} ${C_PRIMARY}%s${C_RESET}..." "$schema"
+
+        # Convert schema to dconf path
+        local dconf_path="/org/gnome/${schema#org.gnome.}"
+        dconf_path="${dconf_path//./\/}"
+
+        # Add section header for this schema
+        printf "\n# %s\n[%s]\n" "$schema" "$dconf_path" >> "$temp_file"
+
+        # Special handling for Ubuntu Tiling Assistant extension
+        if [[ "$schema" == "org.gnome.shell.extensions.tiling-assistant" ]]; then
+            # Only dump specific keybinding keys, not the entire schema
+            local tiling_keys=(
+                "tile-edit-mode" "tile-maximize" "restore-window" "center-window"
+                "tile-top-half" "tile-bottom-half" "tile-left-half" "tile-right-half"
+                "tile-topleft-quarter" "tile-topright-quarter"
+                "tile-bottomleft-quarter" "tile-bottomright-quarter"
+            )
+
+            local key_errors=0
+            for key in "${tiling_keys[@]}"; do
+                local value
+                if value=$(gsettings get "$schema" "$key" 2>/dev/null); then
+                    printf "%s=%s\n" "$key" "$value" >> "$temp_file"
+                else
+                    key_errors=$((key_errors + 1))
+                fi
+            done
+
+            if [[ $key_errors -eq 0 ]]; then
+                printf " ${C_SUCCESS}✓${C_RESET}\n"
+            else
+                printf " ${C_WARNING}⚠${C_RESET}\n"
+            fi
+        else
+            # Dump the schema content normally (skip the [/] header from dconf dump)
+            if dconf dump "$dconf_path/" 2>/dev/null | tail -n +2 >> "$temp_file"; then
+                printf " ${C_SUCCESS}✓${C_RESET}\n"
+            else
+                printf " ${C_ERROR}✗${C_RESET}\n"
+                log "ERROR" "Failed to dump schema: $schema"
+                dump_errors=$((dump_errors + 1))
+            fi
+        fi
+    done
+
+    # Move temp file to final location if successful
+    if [[ $dump_errors -eq 0 ]]; then
+        if mv "$temp_file" "$output_file"; then
+            log "SUCCESS" "Keybindings dumped successfully"
+            printf "  ${C_MUTED}Output:${C_RESET}   ${C_ACCENT}%s${C_RESET}\n" "$output_file"
+            printf "  ${C_MUTED}Format:${C_RESET}   ${C_PRIMARY}dconf (native GNOME)${C_RESET}\n"
+            printf "  ${C_MUTED}Schemas:${C_RESET}  ${C_PRIMARY}%d keybinding schemas${C_RESET}\n" "${#existing_keybinding_schemas[@]}"
+
+            # Show file size
+            if command -v wc >/dev/null 2>&1; then
+                local lines
+                lines=$(wc -l < "$output_file")
+                printf "  ${C_MUTED}Size:${C_RESET}     ${C_INFO}%d lines${C_RESET}\n" "$lines"
+            fi
+        else
+            rm "$temp_file"
+            log "ERROR" "Failed to create output file"
+            return 1
+        fi
+    else
+        rm "$temp_file"
+        log "ERROR" "Dump completed with $dump_errors errors"
+        return 1
+    fi
+}
+
+cmd_sync() {
+    local dry_run=false
+    local input_file=""
+    local force=false
+    local create_backup=false
+    local backup_path=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --force)
+                force=true
+                shift
+                ;;
+            --backup)
+                create_backup=true
+                if [[ $# -gt 1 && "$2" != --* ]]; then
+                    shift
+                    backup_path="$1"
+                fi
+                shift
+                ;;
+            --help|-h)
+                help_sync
+                return 0
+                ;;
+            *)
+                if [[ -z "$input_file" ]]; then
+                    input_file="$1"
+                    shift
+                else
+                    log "ERROR" "Unknown argument: $1"
+                    return 1
+                fi
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [[ -z "$input_file" ]]; then
+        log "ERROR" "You must specify an input filename"
+        printf "${C_MUTED}Use: ${C_PRIMARY}%s sync --help${C_RESET} for usage information\n" "$SCRIPT_NAME"
+        return 1
+    fi
+
+    show_header
+
+    # Check dependencies
+    if ! command -v dconf >/dev/null 2>&1; then
+        log "ERROR" "dconf command not found. Install dconf package."
+        return 1
+    fi
+
+    # Check if input file exists
+    if [[ ! -f "$input_file" ]]; then
+        log "ERROR" "Input file $input_file not found"
+        return 1
+    fi
+
+    # Validate file format (basic check for dconf format)
+    if ! grep -q '^\[/' "$input_file" 2>/dev/null; then
+        log "ERROR" "Input file does not appear to be in dconf format"
+        printf "${C_MUTED}Expected format: dconf dump output with [/path] sections${C_RESET}\n"
+        return 1
+    fi
+
+    # Show what will be synchronized
+    printf "\n${C_BOLD}${C_INFO}🔄 Sync Operation${C_RESET}\n"
+    printf "  ${C_MUTED}Input:${C_RESET}   ${C_ACCENT}%s${C_RESET}\n" "$input_file"
+    printf "  ${C_MUTED}Format:${C_RESET}  ${C_PRIMARY}dconf (native GNOME)${C_RESET}\n"
+
+    # Show file info
+    if command -v wc >/dev/null 2>&1; then
+        local lines
+        lines=$(wc -l < "$input_file")
+        printf "  ${C_MUTED}Size:${C_RESET}    ${C_INFO}%d lines${C_RESET}\n" "$lines"
+    fi
+    printf "\n"
+
+    # Extract dconf paths from the input file
+    local dconf_paths=()
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^\[(/.*)\]$ ]]; then
+            local path="${BASH_REMATCH[1]}"
+            # Only include keybinding-related paths
+            if [[ "$path" =~ /org/gnome/.*(keybindings|media-keys) ]]; then
+                dconf_paths+=("$path")
+            fi
+        fi
+    done < "$input_file"
+
+    if [[ ${#dconf_paths[@]} -eq 0 ]]; then
+        log "ERROR" "No keybinding configurations found in input file"
+        return 1
+    fi
+
+    # List paths that will be synchronized
+    printf "${C_BOLD}${C_INFO}📋 Paths to Synchronize:${C_RESET}\n"
+    for path in "${dconf_paths[@]}"; do
+        printf "  ${C_SUCCESS}▸${C_RESET} ${C_PRIMARY}%s${C_RESET}\n" "$path"
+    done
+    printf "\n"
+
+    # Dry run mode - just show what would be done
+    if [[ "$dry_run" == true ]]; then
+        printf "${C_BOLD}${C_INFO}🔍 Dry Run Mode${C_RESET}\n"
+        printf "  ${C_SUCCESS}✓${C_RESET} Would load keybindings using dconf load commands\n"
+        if [[ "$create_backup" == true ]]; then
+            local auto_backup
+            auto_backup="keybindings-backup-$(date +%Y%m%d_%H%M%S).dconf"
+            local final_backup="${backup_path:-$auto_backup}"
+            printf "  ${C_SUCCESS}✓${C_RESET} Would create backup at ${C_ACCENT}%s${C_RESET}\n" "$final_backup"
+        fi
+        for path in "${dconf_paths[@]}"; do
+            printf "    ${C_MUTED}→${C_RESET} ${C_PRIMARY}%s${C_RESET}\n" "$path"
+        done
+        return 0
+    fi
+
+    # Interactive confirmation (unless --force)
+    if [[ "$force" == false ]]; then
+        printf "${C_BOLD}${C_WARNING}⚠️ Confirmation Required${C_RESET}\n"
+        printf "This will overwrite current keybinding settings with those from the input file.\n"
+        printf "Are you sure you want to continue? [y/N]: "
+        read -r confirmation
+        case "$confirmation" in
+            [yY]|[yY][eE][sS])
+                printf "${C_SUCCESS}✓${C_RESET} Proceeding with synchronization...\n\n"
+                ;;
+            *)
+                printf "${C_WARNING}✗${C_RESET} Operation cancelled\n"
+                return 0
+                ;;
+        esac
+    fi
+
+    # Create backup if requested
+    if [[ "$create_backup" == true ]]; then
+        local auto_backup
+        auto_backup="keybindings-backup-$(date +%Y%m%d_%H%M%S).dconf"
+        local final_backup="${backup_path:-$auto_backup}"
+
+        wave_effect "Creating backup..." 1
+
+        # Dump current keybindings for backup
+        local temp_backup
+        temp_backup=$(mktemp)
+        local backup_success=true
+
+        for path in "${dconf_paths[@]}"; do
+            if ! dconf dump "$path/" >> "$temp_backup" 2>/dev/null; then
+                backup_success=false
+                break
+            fi
+        done
+
+        if [[ "$backup_success" == true ]] && mv "$temp_backup" "$final_backup"; then
+            log "SUCCESS" "Backup created: $final_backup"
+        else
+            rm -f "$temp_backup"
+            log "ERROR" "Failed to create backup"
+            return 1
+        fi
+    fi
+
+    # Perform the synchronization
+    wave_effect "Synchronizing keybindings..." 2
+
+    local sync_errors=0
+
+    # Load keybindings for each path found in the input file
+    for path in "${dconf_paths[@]}"; do
+        printf "  ${C_INFO}Loading${C_RESET} ${C_PRIMARY}%s${C_RESET}..." "$path"
+
+        # Extract the section for this path from the input file
+        local temp_section
+        temp_section=$(mktemp)
+        local in_section=false
+
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^\[(/.*)\]$ ]]; then
+                local current_path="${BASH_REMATCH[1]}"
+                if [[ "$current_path" == "$path" ]]; then
+                    in_section=true
+                    echo "$line" >> "$temp_section"
+                else
+                    in_section=false
+                fi
+            elif [[ "$in_section" == true ]]; then
+                if [[ "$line" =~ ^$ ]]; then
+                    # Empty line marks end of section
+                    break
+                else
+                    echo "$line" >> "$temp_section"
+                fi
+            fi
+        done < "$input_file"
+
+        # Load the section using dconf load
+        if dconf load "$path/" < "$temp_section" 2>/dev/null; then
+            printf " ${C_SUCCESS}✓${C_RESET}\n"
+        else
+            printf " ${C_ERROR}✗${C_RESET}\n"
+            log "ERROR" "Failed to load path: $path"
+            sync_errors=$((sync_errors + 1))
+        fi
+
+        rm "$temp_section"
+    done
+
+    # Report results
+    printf "\n"
+    if [[ $sync_errors -eq 0 ]]; then
+        log "SUCCESS" "Keybinding synchronization completed successfully"
+        printf "  ${C_MUTED}Input:${C_RESET}  ${C_ACCENT}%s${C_RESET}\n" "$input_file"
+        printf "  ${C_MUTED}Paths:${C_RESET}  ${C_PRIMARY}%d dconf paths${C_RESET}\n" "${#dconf_paths[@]}"
+    else
+        log "ERROR" "Synchronization completed with $sync_errors errors"
+        return 1
+    fi
+}
+
+cmd_add() {
+    local dry_run=false
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --help|-h)
+                help_add
+                return 0
+                ;;
+            *)
+                log "ERROR" "Unknown option: $1"
+                help_add
+                return 1
+                ;;
+        esac
+    done
+    
+    show_header
+    
+    printf "${C_BOLD}${C_ACCENT}🔮 Add Keybinding${C_RESET}\n\n"
+    
+    # Define the official GNOME keybinding schemas (matching existing functions)
+    local keybinding_schemas=(
+        "org.gnome.desktop.wm.keybindings"
+        "org.gnome.shell.keybindings"
+        "org.gnome.mutter.keybindings"
+        "org.gnome.mutter.wayland.keybindings"
+        "org.gnome.settings-daemon.plugins.media-keys"
+        "org.gnome.shell.extensions.tiling-assistant"
+    )
+    
+    # Get available keybinding schemas
+    local -a available_schemas=()
+    local all_schemas
+    all_schemas=$(gsettings list-schemas | sort)
+    
+    if [[ -z "$all_schemas" ]]; then
+        log "ERROR" "No schemas available from gsettings"
+        return 1
+    fi
+    
+    # Filter to only schemas from our whitelist that actually exist
+    for schema in "${keybinding_schemas[@]}"; do
+        if echo "$all_schemas" | grep -q "^${schema}$"; then
+            available_schemas+=("$schema")
+        fi
+    done
+    
+    if [[ ${#available_schemas[@]} -eq 0 ]]; then
+        log "ERROR" "No whitelisted keybinding schemas available"
+        return 1
+    fi
+    
+    # Step 1: Schema Selection
+    printf "${C_BOLD}${C_SUCCESS}📂 Step 1: Choose Schema${C_RESET}\n\n"
+    printf "Available keybinding schemas:\n\n"
+    
+    local i=1
+    for schema in "${available_schemas[@]}"; do
+        printf "  ${C_INFO}%d${C_RESET}) ${C_PRIMARY}%s${C_RESET}\n" "$i" "$schema"
+        i=$((i + 1))
+    done
+    
+    printf "\nEnter schema number [1-%d]: " "${#available_schemas[@]}"
+    local schema_choice
+    read -r schema_choice
+    
+    # Validate schema choice
+    if ! [[ "$schema_choice" =~ ^[0-9]+$ ]] || [[ "$schema_choice" -lt 1 ]] || [[ "$schema_choice" -gt "${#available_schemas[@]}" ]]; then
+        log "ERROR" "Invalid schema selection: $schema_choice"
+        return 1
+    fi
+    
+    local selected_schema="${available_schemas[$((schema_choice - 1))]}"
+    printf "${C_SUCCESS}✓${C_RESET} Selected schema: ${C_PRIMARY}%s${C_RESET}\n\n" "$selected_schema"
+    
+    # Step 2: Key Name Input
+    printf "${C_BOLD}${C_SUCCESS}🔑 Step 2: Enter Key Name${C_RESET}\n\n"
+    printf "Enter a unique name for this keybinding (e.g., 'my-shortcut', 'custom-action'): "
+    local key_name
+    read -r key_name
+    
+    # Validate key name
+    if [[ -z "$key_name" ]]; then
+        log "ERROR" "Key name cannot be empty"
+        return 1
+    fi
+    
+    # Check if key already exists in the selected schema
+    if gsettings list-keys "$selected_schema" 2>/dev/null | grep -q "^${key_name}$"; then
+        local current_value
+        current_value=$(gsettings get "$selected_schema" "$key_name" 2>/dev/null || echo "")
+        if [[ -n "$current_value" && "$current_value" != "''" && "$current_value" != "[]" ]]; then
+            printf "${C_BOLD}${C_WARNING}⚠️ Key Already Exists${C_RESET}\n"
+            printf "Key '${C_ACCENT}%s${C_RESET}' in schema '${C_PRIMARY}%s${C_RESET}' already has value: ${C_INFO}%s${C_RESET}\n" "$key_name" "$selected_schema" "$current_value"
+            printf "Overwrite existing keybinding? [y/N]: "
+            local overwrite_confirmation
+            read -r overwrite_confirmation
+            case "$overwrite_confirmation" in
+                [yY]|[yY][eE][sS])
+                    printf "${C_SUCCESS}✓${C_RESET} Will overwrite existing keybinding...\n\n"
+                    ;;
+                *)
+                    log "INFO" "Operation cancelled by user"
+                    return 0
+                    ;;
+            esac
+        fi
+    fi
+    
+    printf "${C_SUCCESS}✓${C_RESET} Key name: ${C_ACCENT}%s${C_RESET}\n\n" "$key_name"
+    
+    # Step 3: Key Combination Input
+    printf "${C_BOLD}${C_SUCCESS}⌨️ Step 3: Enter Key Combination${C_RESET}\n\n"
+    printf "Examples of valid key combinations:\n"
+    printf "  ${C_MUTED}• ${C_INFO}<Ctrl><Alt>t${C_RESET}         (Ctrl+Alt+T)\n"
+    printf "  ${C_MUTED}• ${C_INFO}<Super>space${C_RESET}         (Super+Space)\n"
+    printf "  ${C_MUTED}• ${C_INFO}<Shift><Ctrl>n${C_RESET}       (Shift+Ctrl+N)\n"
+    printf "  ${C_MUTED}• ${C_INFO}<Alt>F4${C_RESET}              (Alt+F4)\n"
+    printf "  ${C_MUTED}• ${C_INFO}F11${C_RESET}                  (F11 key)\n\n"
+    printf "Enter key combination: "
+    local key_combination
+    read -r key_combination
+    
+    # Validate key combination format
+    if [[ -z "$key_combination" ]]; then
+        log "ERROR" "Key combination cannot be empty"
+        return 1
+    fi
+    
+    # Basic validation for common key combination patterns
+    if [[ ! "$key_combination" =~ ^(<[A-Za-z]+>)*[A-Za-z0-9]+$ ]] && [[ ! "$key_combination" =~ ^[A-Za-z0-9]+$ ]]; then
+        log "WARNING" "Key combination format may be invalid: $key_combination"
+        printf "Continue anyway? [y/N]: "
+        local format_confirmation
+        read -r format_confirmation
+        case "$format_confirmation" in
+            [yY]|[yY][eE][sS])
+                ;;
+            *)
+                log "INFO" "Operation cancelled by user"
+                return 0
+                ;;
+        esac
+    fi
+    
+    printf "${C_SUCCESS}✓${C_RESET} Key combination: ${C_ACCENT}%s${C_RESET}\n\n" "$key_combination"
+    
+    # Step 4: Conflict Detection
+    printf "${C_BOLD}${C_SUCCESS}🔍 Step 4: Checking for Conflicts${C_RESET}\n\n"
+    
+    local conflicts_found=false
+    local -a conflict_schemas=()
+    local -a conflict_keys=()
+    
+    # Check all schemas for the same key combination
+    for check_schema in "${available_schemas[@]}"; do
+        local all_keys
+        all_keys=$(gsettings list-keys "$check_schema" 2>/dev/null || true)
+        
+        if [[ -n "$all_keys" ]]; then
+            while IFS= read -r check_key; do
+                [[ -z "$check_key" ]] && continue
+                local current_value
+                current_value=$(gsettings get "$check_schema" "$check_key" 2>/dev/null || echo "")
+                
+                # Skip empty values and arrays
+                if [[ -n "$current_value" && "$current_value" != "''" && "$current_value" != "[]" ]]; then
+                    # Remove quotes and check for exact match
+                    local clean_value="${current_value//\'/}"
+                    if [[ "$clean_value" == "$key_combination" ]] && [[ ! ("$check_schema" == "$selected_schema" && "$check_key" == "$key_name") ]]; then
+                        conflicts_found=true
+                        conflict_schemas+=("$check_schema")
+                        conflict_keys+=("$check_key")
+                    fi
+                fi
+            done <<< "$all_keys"
+        fi
+    done
+    
+    if [[ "$conflicts_found" == true ]]; then
+        printf "${C_BOLD}${C_WARNING}⚠️ Conflicts Found${C_RESET}\n"
+        printf "The key combination '${C_ACCENT}%s${C_RESET}' is already assigned to:\n\n" "$key_combination"
+        
+        for ((i=0; i<${#conflict_schemas[@]}; i++)); do
+            printf "  ${C_ERROR}•${C_RESET} ${C_PRIMARY}%s${C_RESET} → ${C_INFO}%s${C_RESET}\n" "${conflict_schemas[i]}" "${conflict_keys[i]}"
+        done
+        
+        printf "\nContinue with conflicting assignment? [y/N]: "
+        local conflict_confirmation
+        read -r conflict_confirmation
+        case "$conflict_confirmation" in
+            [yY]|[yY][eE][sS])
+                printf "${C_SUCCESS}✓${C_RESET} Proceeding despite conflicts...\n\n"
+                ;;
+            *)
+                log "INFO" "Operation cancelled by user"
+                return 0
+                ;;
+        esac
+    else
+        printf "${C_SUCCESS}✓${C_RESET} No conflicts detected\n\n"
+    fi
+    
+    # Step 5: Preview & Final Confirmation
+    printf "${C_BOLD}${C_SUCCESS}📋 Step 5: Preview${C_RESET}\n\n"
+    printf "${C_BOLD}Summary:${C_RESET}\n"
+    printf "  ${C_INFO}Schema:${C_RESET}         ${C_PRIMARY}%s${C_RESET}\n" "$selected_schema"
+    printf "  ${C_INFO}Key Name:${C_RESET}       ${C_ACCENT}%s${C_RESET}\n" "$key_name"
+    printf "  ${C_INFO}Combination:${C_RESET}    ${C_ACCENT}%s${C_RESET}\n" "$key_combination"
+    if [[ "$conflicts_found" == true ]]; then
+        printf "  ${C_WARNING}Conflicts:${C_RESET}      ${C_ERROR}Yes (%d found)${C_RESET}\n" "${#conflict_schemas[@]}"
+    else
+        printf "  ${C_INFO}Conflicts:${C_RESET}      ${C_SUCCESS}None${C_RESET}\n"
+    fi
+    printf "\n"
+    
+    # Dry run mode
+    if [[ "$dry_run" == true ]]; then
+        printf "${C_BOLD}${C_INFO}🔍 Dry Run Mode${C_RESET}\n"
+        printf "  ${C_SUCCESS}✓${C_RESET} Would add keybinding to system settings using gsettings\n"
+        printf "    ${C_MUTED}Command:${C_RESET} gsettings set \"${selected_schema}\" \"${key_name}\" \"${key_combination}\"\n"
+        return 0
+    fi
+    
+    # Final confirmation
+    printf "${C_BOLD}${C_WARNING}⚠️ Final Confirmation${C_RESET}\n"
+    printf "Add this keybinding to your system settings? [y/N]: "
+    local final_confirmation
+    read -r final_confirmation
+    case "$final_confirmation" in
+        [yY]|[yY][eE][sS])
+            printf "${C_SUCCESS}✓${C_RESET} Proceeding with addition...\n\n"
+            ;;
+        *)
+            log "INFO" "Operation cancelled by user"
+            return 0
+            ;;
+    esac
+    
+    # Step 6: Execute Addition
+    printf "${C_BOLD}${C_SUCCESS}🚀 Adding Keybinding${C_RESET}\n\n"
+    
+    printf "  ${C_INFO}Setting keybinding...${C_RESET} "
+    if gsettings set "$selected_schema" "$key_name" "$key_combination" 2>/dev/null; then
+        printf "${C_SUCCESS}✓${C_RESET}\n"
+        
+        # Verify the setting was applied
+        local verification
+        verification=$(gsettings get "$selected_schema" "$key_name" 2>/dev/null || echo "")
+        if [[ -n "$verification" && "$verification" != "''" ]]; then
+            printf "  ${C_INFO}Verification...${C_RESET} ${C_SUCCESS}✓${C_RESET}\n\n"
+            
+            printf "${C_BOLD}${C_SUCCESS}🎉 Success!${C_RESET}\n"
+            printf "Keybinding '${C_ACCENT}%s${C_RESET}' has been added to schema '${C_PRIMARY}%s${C_RESET}'\n" "$key_name" "$selected_schema"
+            printf "Key combination: ${C_ACCENT}%s${C_RESET}\n" "$key_combination"
+            printf "Current value: ${C_INFO}%s${C_RESET}\n" "$verification"
+        else
+            printf "  ${C_INFO}Verification...${C_RESET} ${C_ERROR}✗${C_RESET}\n\n"
+            log "WARNING" "Keybinding was set but verification failed"
+        fi
+    else
+        printf "${C_ERROR}✗${C_RESET}\n\n"
+        log "ERROR" "Failed to add keybinding to gsettings"
+        return 1
+    fi
+}
+
+cmd_reset() {
+    local dry_run=false
+    local force=false
+    local specific_schema=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --schema)
+                shift
+                if [[ $# -eq 0 ]]; then
+                    log "ERROR" "--schema requires a value"
+                    return 1
+                fi
+                specific_schema="$1"
+                shift
+                ;;
+            --force)
+                force=true
+                shift
+                ;;
+            --help|-h)
+                help_reset
+                return 0
+                ;;
+            *)
+                log "ERROR" "Unknown argument: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    show_header
+
+    # Check gsettings availability
+    if ! command -v gsettings >/dev/null 2>&1; then
+        log "ERROR" "gsettings command not found. Install glib2-dev or similar package."
+        return 1
+    fi
+
+    # Define the official GNOME keybinding schemas (matching query_system_settings)
+    local keybinding_schemas=(
+        "org.gnome.desktop.wm.keybindings"
+        "org.gnome.shell.keybindings"
+        "org.gnome.mutter.keybindings"
+        "org.gnome.mutter.wayland.keybindings"
+        "org.gnome.settings-daemon.plugins.media-keys"
+        "org.gnome.shell.extensions.tiling-assistant"
+    )
+
+    # Filter schemas if specific schema requested
+    local schemas_to_reset=()
+    if [[ -n "$specific_schema" ]]; then
+        # Validate that the specific schema is in our whitelist
+        local schema_found=false
+        for schema in "${keybinding_schemas[@]}"; do
+            if [[ "$schema" == "$specific_schema" ]]; then
+                schemas_to_reset+=("$specific_schema")
+                schema_found=true
+                break
+            fi
+        done
+        if [[ "$schema_found" == false ]]; then
+            log "ERROR" "Schema '$specific_schema' is not a recognized keybinding schema"
+            printf "${C_MUTED}Available schemas:${C_RESET}\n"
+            for schema in "${keybinding_schemas[@]}"; do
+                printf "  ${C_INFO}%s${C_RESET}\n" "$schema"
+            done
+            return 1
+        fi
+    else
+        # Get all available schemas and filter to only those that exist
+        local available_schemas
+        available_schemas=$(gsettings list-schemas | sort)
+        for schema in "${keybinding_schemas[@]}"; do
+            if echo "$available_schemas" | grep -q "^${schema}$"; then
+                schemas_to_reset+=("$schema")
+            fi
+        done
+    fi
+
+    # Show what will be reset
+    printf "\n${C_BOLD}${C_WARNING}🔄 Reset Operation${C_RESET}\n"
+    if [[ -n "$specific_schema" ]]; then
+        printf "  ${C_MUTED}Schema:${C_RESET}  ${C_PRIMARY}$specific_schema${C_RESET}\n"
+    else
+        printf "  ${C_MUTED}Schemas:${C_RESET} ${C_PRIMARY}All keybinding schemas (${#schemas_to_reset[@]} schemas)${C_RESET}\n"
+    fi
+    printf "\n"
+
+    # List schemas that will be reset
+    if [[ -z "$specific_schema" ]]; then
+        printf "${C_BOLD}${C_INFO}📋 Schemas to Reset:${C_RESET}\n"
+        for schema in "${schemas_to_reset[@]}"; do
+            printf "  ${C_SUCCESS}▸${C_RESET} ${C_PRIMARY}%s${C_RESET}\n" "$schema"
+        done
+        printf "\n"
+    fi
+
+    # Dry run mode - just show what would be done
+    if [[ "$dry_run" == true ]]; then
+        printf "${C_BOLD}${C_INFO}🔍 Dry Run Mode${C_RESET}\n"
+        printf "  ${C_SUCCESS}✓${C_RESET} Would reset system keybindings using gsettings reset-recursively\n"
+        for schema in "${schemas_to_reset[@]}"; do
+            printf "    ${C_MUTED}→${C_RESET} ${C_PRIMARY}%s${C_RESET}\n" "$schema"
+        done
+        return 0
+    fi
+
+    # Interactive confirmation (unless --force)
+    if [[ "$force" == false ]]; then
+        printf "${C_BOLD}${C_WARNING}⚠️ Confirmation Required${C_RESET}\n"
+        printf "This will reset keybindings to their default values.\n"
+        printf "• System keybindings will be reset using gsettings\n"
+        printf "Are you sure you want to continue? [y/N]: "
+        read -r confirmation
+        case "$confirmation" in
+            [yY]|[yY][eE][sS])
+                printf "${C_SUCCESS}✓${C_RESET} Proceeding with reset...\n\n"
+                ;;
+            *)
+                printf "${C_WARNING}✗${C_RESET} Operation cancelled\n"
+                return 0
+                ;;
+        esac
+    fi
+
+
+    # Perform the reset operations
+    local reset_errors=0
+
+    # Reset system keybindings
+    wave_effect "Resetting system keybindings..." 2
+
+    for schema in "${schemas_to_reset[@]}"; do
+        printf "  ${C_INFO}Resetting${C_RESET} ${C_PRIMARY}%s${C_RESET}..." "$schema"
+        if gsettings reset-recursively "$schema" 2>/dev/null; then
+            printf " ${C_SUCCESS}✓${C_RESET}\n"
+        else
+            printf " ${C_ERROR}✗${C_RESET}\n"
+            log "ERROR" "Failed to reset schema: $schema"
+            reset_errors=$((reset_errors + 1))
+        fi
+    done
+
+
+    # Report results
+    printf "\n"
+    if [[ $reset_errors -eq 0 ]]; then
+        log "SUCCESS" "Keybinding reset completed successfully"
+        if [[ -n "$specific_schema" ]]; then
+            printf "  ${C_MUTED}Schema:${C_RESET}    ${C_PRIMARY}$specific_schema${C_RESET}\n"
+        else
+            printf "  ${C_MUTED}Schemas:${C_RESET}   ${C_PRIMARY}${#schemas_to_reset[@]} keybinding schemas${C_RESET}\n"
+        fi
+    else
+        log "ERROR" "Reset completed with $reset_errors errors"
+        return 1
+    fi
+}
+
+cmd_del() {
+    local dry_run=false
+    local target_schema=""
+    local target_key=""
+    local force=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --schema)
+                shift
+                if [[ $# -eq 0 ]]; then
+                    log "ERROR" "--schema requires a value"
+                    return 1
+                fi
+                target_schema="$1"
+                shift
+                ;;
+            --key)
+                shift
+                if [[ $# -eq 0 ]]; then
+                    log "ERROR" "--key requires a value"
+                    return 1
+                fi
+                target_key="$1"
+                shift
+                ;;
+            --force)
+                force=true
+                shift
+                ;;
+            --help|-h)
+                help_del
+                return 0
+                ;;
+            *)
+                log "ERROR" "Unknown argument: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [[ -z "$target_schema" ]]; then
+        log "ERROR" "You must specify --schema"
+        printf "${C_MUTED}Use: ${C_PRIMARY}%s del --help${C_RESET} for usage information\n" "$SCRIPT_NAME"
+        return 1
+    fi
+
+    if [[ -z "$target_key" ]]; then
+        log "ERROR" "You must specify --key"
+        printf "${C_MUTED}Use: ${C_PRIMARY}%s del --help${C_RESET} for usage information\n" "$SCRIPT_NAME"
+        return 1
+    fi
+
+    show_header
+
+    # Check gsettings availability
+    if ! command -v gsettings >/dev/null 2>&1; then
+        log "ERROR" "gsettings command not found. Install glib2-dev or similar package."
+        return 1
+    fi
+
+    # Verify the target exists before attempting deletion
+    local target_exists=false
+    local current_value=""
+
+    # Check if the keybinding exists in gsettings
+    if gsettings list-keys "$target_schema" 2>/dev/null | grep -q "^${target_key}$"; then
+        current_value=$(gsettings get "$target_schema" "$target_key" 2>/dev/null || echo "")
+        if [[ -n "$current_value" ]]; then
+            target_exists=true
+        fi
+    fi
+
+    if [[ "$target_exists" == false ]]; then
+        log "ERROR" "Keybinding $target_schema.$target_key not found in system settings"
+        return 1
+    fi
+
+    # Show what will be deleted
+    printf "\n${C_BOLD}${C_WARNING}🗑️ Target for Deletion${C_RESET}\n"
+    printf "  ${C_MUTED}Schema:${C_RESET}  ${C_PRIMARY}$target_schema${C_RESET}\n"
+    printf "  ${C_MUTED}Key:${C_RESET}     ${C_INFO}$target_key${C_RESET}\n"
+    printf "  ${C_MUTED}Value:${C_RESET}   ${C_SECONDARY}$current_value${C_RESET}\n\n"
+
+    # Dry run mode - just show what would be done
+    if [[ "$dry_run" == true ]]; then
+        printf "${C_BOLD}${C_INFO}🔍 Dry Run Mode${C_RESET}\n"
+        printf "  ${C_SUCCESS}✓${C_RESET} Would reset ${C_PRIMARY}$target_schema${C_RESET}.${C_INFO}$target_key${C_RESET} to default\n"
+        return 0
+    fi
+
+    # Interactive confirmation (unless --force)
+    if [[ "$force" == false ]]; then
+        printf "${C_BOLD}${C_WARNING}⚠️ Confirmation Required${C_RESET}\n"
+        printf "This will reset the keybinding to its default value.\n"
+        printf "Are you sure you want to continue? [y/N]: "
+        read -r confirmation
+        case "$confirmation" in
+            [yY]|[yY][eE][sS])
+                printf "${C_SUCCESS}✓${C_RESET} Proceeding with deletion...\n\n"
+                ;;
+            *)
+                printf "${C_WARNING}✗${C_RESET} Operation cancelled\n"
+                return 0
+                ;;
+        esac
+    fi
+
+    # Perform the deletion
+    wave_effect "Deleting keybinding..." 2
+
+    delete_system_keybinding "$target_schema" "$target_key"
+
+    local exit_code=$?
+
+    if [[ $exit_code -eq 0 ]]; then
+        log "SUCCESS" "Keybinding deleted successfully"
+        printf "  ${C_MUTED}Schema:${C_RESET} ${C_PRIMARY}$target_schema${C_RESET}\n"
+        printf "  ${C_MUTED}Key:${C_RESET}    ${C_INFO}$target_key${C_RESET}\n"
+    else
+        log "ERROR" "Failed to delete keybinding"
+        return 1
+    fi
+}
+
+# Individual help functions for each subcommand
+help_ls() {
+    show_header
+
+    printf "${C_BOLD}${C_ACCENT}📖 ls - List Keybindings${C_RESET}\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}📋 Description${C_RESET}\n"
+    printf "  Display GNOME keybindings from live gsettings.\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}🚀 Usage${C_RESET}\n"
+    printf "  ${C_PRIMARY}%s ls${C_RESET} [${C_INFO}--hide-empty-schemas${C_RESET}] [${C_INFO}--dry-run${C_RESET}] [${C_INFO}--help${C_RESET}]\n\n" "$SCRIPT_NAME"
+
+    printf "${C_BOLD}${C_WARNING}⚙️ Options${C_RESET}\n"
+    printf "  ${C_MUTED}--hide-empty-schemas${C_RESET}  Hide schemas that contain no keybindings\n"
+    printf "  ${C_MUTED}--dry-run${C_RESET}             Show what would be done without making changes\n"
+    printf "  ${C_MUTED}--help${C_RESET}                Show this help message\n\n"
+
+    printf "${C_BOLD}${C_SECONDARY}🌟 Examples${C_RESET}\n"
+    printf "  ${C_ACCENT}%s ls${C_RESET}                           Query current system keybindings via gsettings\n" "$SCRIPT_NAME"
+    printf "  ${C_ACCENT}%s ls --hide-empty-schemas${C_RESET}      Hide schemas without keybindings\n" "$SCRIPT_NAME"
+    printf "  ${C_ACCENT}%s ls --dry-run${C_RESET}                 Preview operation without making changes\n" "$SCRIPT_NAME"
+    printf "\n"
+}
+
+help_dump() {
+    show_header
+
+    printf "${C_BOLD}${C_ACCENT}📖 dump - Export Keybindings${C_RESET}\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}📋 Description${C_RESET}\n"
+    printf "  Export current GNOME keybinding configurations to a dconf format file.\n"
+    printf "  Uses native dconf dump for perfect fidelity and guaranteed compatibility.\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}🚀 Usage${C_RESET}\n"
+    printf "  ${C_PRIMARY}%s dump${C_RESET} ${C_INFO}<filename>${C_RESET} [${C_INFO}--force${C_RESET}] [${C_INFO}--dry-run${C_RESET}] [${C_INFO}--help${C_RESET}]\n\n" "$SCRIPT_NAME"
+
+    printf "${C_BOLD}${C_WARNING}⚙️ Required Arguments${C_RESET}\n"
+    printf "  ${C_MUTED}<filename>${C_RESET}            Output file path for exported keybindings\n\n"
+    printf "${C_BOLD}${C_WARNING}⚙️ Options${C_RESET}\n"
+    printf "  ${C_MUTED}--force${C_RESET}               Overwrite existing file without confirmation\n"
+    printf "  ${C_MUTED}--dry-run${C_RESET}             Preview dump operation without creating file\n"
+    printf "  ${C_MUTED}--help${C_RESET}                Show this help message\n\n"
+
+    printf "${C_BOLD}${C_INFO}📋 Export Format${C_RESET}\n"
+    printf "  ${C_PRIMARY}Format:${C_RESET}             dconf key-file format (native GNOME)\n"
+    printf "  ${C_PRIMARY}Schemas:${C_RESET}            Official GNOME keybinding schemas only\n"
+    printf "  ${C_PRIMARY}Compatibility:${C_RESET}      Perfect roundtrip with keegees sync\n"
+    printf "  ${C_PRIMARY}Portability:${C_RESET}        GNOME-specific (not cross-platform)\n\n"
+
+    printf "${C_BOLD}${C_INFO}📤 Exported Schemas${C_RESET}\n"
+    printf "  ${C_PRIMARY}org.gnome.desktop.wm.keybindings${C_RESET}              Window manager shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.shell.keybindings${C_RESET}                   Shell-specific shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.mutter.keybindings${C_RESET}                  Compositor shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.mutter.wayland.keybindings${C_RESET}          Wayland session shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.settings-daemon.plugins.media-keys${C_RESET} Media and system shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.shell.extensions.tiling-assistant${C_RESET}  Ubuntu Tiling Assistant extension\n\n"
+
+    printf "${C_BOLD}${C_SECONDARY}🌟 Examples${C_RESET}\n"
+    printf "  ${C_ACCENT}%s dump my-keybindings.dconf${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Export current keybindings to file\n\n"
+    printf "  ${C_ACCENT}%s dump backup-\$(date +%%Y%%m%%d).dconf --force${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Export with timestamped filename, overwrite if exists\n\n"
+    printf "  ${C_ACCENT}%s dump keybindings.dconf --dry-run${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Preview export operation without creating file\n"
+}
+
+help_sync() {
+    show_header
+
+    printf "${C_BOLD}${C_ACCENT}📖 sync - Import Keybindings${C_RESET}\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}📋 Description${C_RESET}\n"
+    printf "  Import and apply GNOME keybinding configurations from a dconf format file.\n"
+    printf "  Uses native dconf load for atomic operations and perfect compatibility.\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}🚀 Usage${C_RESET}\n"
+    printf "  ${C_PRIMARY}%s sync${C_RESET} ${C_INFO}<filename>${C_RESET} [${C_INFO}--force${C_RESET}] [${C_INFO}--backup${C_RESET} [PATH]] [${C_INFO}--dry-run${C_RESET}] [${C_INFO}--help${C_RESET}]\n\n" "$SCRIPT_NAME"
+
+    printf "${C_BOLD}${C_WARNING}⚙️ Required Arguments${C_RESET}\n"
+    printf "  ${C_MUTED}<filename>${C_RESET}            Input file path with keybinding configurations\n\n"
+    printf "${C_BOLD}${C_WARNING}⚙️ Options${C_RESET}\n"
+    printf "  ${C_MUTED}--force${C_RESET}               Apply changes without interactive confirmation\n"
+    printf "  ${C_MUTED}--backup [PATH]${C_RESET}       Create backup before sync (auto-generated if no path)\n"
+    printf "  ${C_MUTED}--dry-run${C_RESET}             Preview sync operation without applying changes\n"
+    printf "  ${C_MUTED}--help${C_RESET}                Show this help message\n\n"
+
+    printf "${C_BOLD}${C_INFO}📥 Import Format${C_RESET}\n"
+    printf "  ${C_PRIMARY}Format:${C_RESET}             dconf key-file format (native GNOME)\n"
+    printf "  ${C_PRIMARY}Source:${C_RESET}             Files created by keegees dump or dconf dump\n"
+    printf "  ${C_PRIMARY}Validation:${C_RESET}         Automatic format verification\n"
+    printf "  ${C_PRIMARY}Safety:${C_RESET}             Interactive confirmation and backup options\n\n"
+
+    printf "${C_BOLD}${C_INFO}🔄 Sync Process${C_RESET}\n"
+    printf "  ${C_SUCCESS}1.${C_RESET} Validate input file format and content\n"
+    printf "  ${C_SUCCESS}2.${C_RESET} Extract keybinding-related dconf paths\n"
+    printf "  ${C_SUCCESS}3.${C_RESET} Create backup of current settings (if requested)\n"
+    printf "  ${C_SUCCESS}4.${C_RESET} Apply configurations using atomic dconf load operations\n"
+    printf "  ${C_SUCCESS}5.${C_RESET} Report results with comprehensive error handling\n\n"
+
+    printf "${C_BOLD}${C_SECONDARY}🌟 Examples${C_RESET}\n"
+    printf "  ${C_ACCENT}%s sync my-keybindings.dconf${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Import keybindings with interactive confirmation\n\n"
+    printf "  ${C_ACCENT}%s sync keybindings.dconf --backup --force${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Import with automatic backup, no confirmation\n\n"
+    printf "  ${C_ACCENT}%s sync keybindings.dconf --dry-run${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Preview import operation without making changes\n\n"
+    printf "  ${C_ACCENT}%s sync keybindings.dconf --backup /tmp/backup.dconf${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Import with custom backup path\n"
+}
+
+help_add() {
+    show_header
+
+    printf "${C_BOLD}${C_ACCENT}📖 add - Add Keybinding${C_RESET}\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}📋 Description${C_RESET}\n"
+    printf "  Interactively add a new keybinding to the configuration.\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}🚀 Usage${C_RESET}\n"
+    printf "  ${C_PRIMARY}%s add${C_RESET} [${C_INFO}--dry-run${C_RESET}] [${C_INFO}--help${C_RESET}]\n\n" "$SCRIPT_NAME"
+
+    printf "${C_BOLD}${C_WARNING}⚙️ Options${C_RESET}\n"
+    printf "  ${C_MUTED}--dry-run${C_RESET}             Preview changes without saving them\n"
+    printf "  ${C_MUTED}--help${C_RESET}                Show this help message\n\n"
+
+    printf "${C_BOLD}${C_SECONDARY}🌟 Examples${C_RESET}\n"
+    printf "  ${C_ACCENT}%s add${C_RESET}                Add new keybinding interactively\n" "$SCRIPT_NAME"
+    printf "  ${C_ACCENT}%s add --dry-run${C_RESET}      Preview keybinding addition\n" "$SCRIPT_NAME"
+    printf "\n"
+}
+
+help_reset() {
+    show_header
+
+    printf "${C_BOLD}${C_ACCENT}📖 reset - Reset Keybindings${C_RESET}\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}📋 Description${C_RESET}\n"
+    printf "  Reset GNOME keybindings to their default values. This command implements the same\n"
+    printf "  functionality as GNOME Settings \"Reset All...\" button using gsettings reset-recursively.\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}🚀 Usage${C_RESET}\n"
+    printf "  ${C_PRIMARY}%s reset${C_RESET} [${C_INFO}--schema${C_RESET} SCHEMA] [${C_INFO}--force${C_RESET}] [${C_INFO}--dry-run${C_RESET}] [${C_INFO}--help${C_RESET}]\n\n" "$SCRIPT_NAME"
+
+    printf "${C_BOLD}${C_WARNING}⚙️ Target Selection (optional)${C_RESET}\n"
+    printf "  ${C_MUTED}--schema SCHEMA${C_RESET}       Reset only specific schema (default: all keybinding schemas)\n\n"
+    printf "${C_BOLD}${C_WARNING}⚙️ Additional Options${C_RESET}\n"
+    printf "  ${C_MUTED}--force${C_RESET}               Skip interactive confirmation prompts\n"
+    printf "  ${C_MUTED}--dry-run${C_RESET}             Preview changes without making them\n"
+    printf "  ${C_MUTED}--help${C_RESET}                Show this help message\n\n"
+
+    printf "${C_BOLD}${C_INFO}📋 Keybinding Schemas${C_RESET}\n"
+    printf "  ${C_PRIMARY}org.gnome.desktop.wm.keybindings${C_RESET}              Window manager shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.shell.keybindings${C_RESET}                   Shell-specific shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.mutter.keybindings${C_RESET}                  Compositor shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.mutter.wayland.keybindings${C_RESET}          Wayland session shortcuts\n"
+    printf "  ${C_PRIMARY}org.gnome.settings-daemon.plugins.media-keys${C_RESET} Media and system shortcuts\n\n"
+
+    printf "${C_BOLD}${C_SECONDARY}🌟 Examples${C_RESET}\n"
+    printf "  ${C_ACCENT}%s reset${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Reset all system keybindings to defaults (like GNOME Settings \"Reset All...\")\n\n"
+    printf "  ${C_ACCENT}%s reset --schema org.gnome.desktop.wm.keybindings${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Reset only window manager keybindings\n\n"
+    printf "  ${C_ACCENT}%s reset --dry-run${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Preview reset without making changes\n\n"
+    printf "  ${C_ACCENT}%s reset --force${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Reset system keybindings without confirmation\n"
+}
+
+help_del() {
+    show_header
+
+    printf "${C_BOLD}${C_ACCENT}📖 del - Delete Keybinding${C_RESET}\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}📋 Description${C_RESET}\n"
+    printf "  Delete GNOME keybindings from live gsettings (resets to default).\n\n"
+
+    printf "${C_BOLD}${C_SUCCESS}🚀 Usage${C_RESET}\n"
+    printf "  ${C_PRIMARY}%s del${C_RESET} ${C_INFO}--schema${C_RESET} SCHEMA ${C_INFO}--key${C_RESET} KEY [${C_INFO}--force${C_RESET}] [${C_INFO}--dry-run${C_RESET}] [${C_INFO}--help${C_RESET}]\n\n" "$SCRIPT_NAME"
+
+    printf "${C_BOLD}${C_WARNING}⚙️ Target Selection (both required)${C_RESET}\n"
+    printf "  ${C_MUTED}--schema SCHEMA${C_RESET}       Target schema (e.g., org.gnome.desktop.wm.keybindings)\n"
+    printf "  ${C_MUTED}--key KEY${C_RESET}             Target key within schema (e.g., close)\n\n"
+    printf "${C_BOLD}${C_WARNING}⚙️ Additional Options${C_RESET}\n"
+    printf "  ${C_MUTED}--force${C_RESET}               Skip interactive confirmation prompts\n"
+    printf "  ${C_MUTED}--dry-run${C_RESET}             Preview changes without making them\n"
+    printf "  ${C_MUTED}--help${C_RESET}                Show this help message\n\n"
+
+    printf "${C_BOLD}${C_SECONDARY}🌟 Examples${C_RESET}\n"
+    printf "  ${C_ACCENT}%s del --schema org.gnome.desktop.wm.keybindings --key close${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Delete close keybinding from live gsettings (resets to default)\n\n"
+    printf "  ${C_ACCENT}%s del --schema org.gnome.mutter.keybindings --key rotate-monitor --dry-run${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Preview deletion without making changes\n\n"
+    printf "  ${C_ACCENT}%s del --schema org.freedesktop.ibus --key next-engine --force${C_RESET}\n" "$SCRIPT_NAME"
+    printf "      Delete without confirmation prompt\n"
+}
+
+cmd_help() {
+    # Handle help for specific subcommands
+    if [[ $# -gt 0 ]]; then
+        local subcommand="$1"
+        case "$subcommand" in
+            ls|list)
+                help_ls
+                return 0
+                ;;
+            dump)
+                help_dump
+                return 0
+                ;;
+            sync)
+                help_sync
+                return 0
+                ;;
+            add)
+                help_add
+                return 0
+                ;;
+            reset)
+                help_reset
+                return 0
+                ;;
+            del|delete|rm)
+                help_del
+                return 0
+                ;;
+            *)
+                log "ERROR" "Unknown subcommand: $subcommand"
+                log "INFO" "Available subcommands: ls, dump, sync, add, reset, del"
+                return 1
+                ;;
+        esac
+    fi
+
+    # Show general help
+    show_header
+
+    printf "${C_BOLD}${C_ACCENT}📖 Usage${C_RESET}\n"
+    printf "  ${C_PRIMARY}%s${C_RESET} ${C_BOLD}<command>${C_RESET} [options]\n\n" "$SCRIPT_NAME"
+
+    printf "${C_BOLD}${C_SUCCESS}🚀 Commands${C_RESET}\n"
+    printf "  ${C_INFO}ls${C_RESET}     [--dry-run]                   List keybindings\n"
+    printf "  ${C_INFO}dump${C_RESET}   <filename> [--force]          Export keybindings to dconf format\n"
+    printf "  ${C_INFO}sync${C_RESET}   <filename> [--backup]         Import keybindings from dconf format\n"
+    printf "  ${C_INFO}add${C_RESET}    [--dry-run]                   Interactively add new keybinding\n"
+    printf "  ${C_INFO}reset${C_RESET}  [--force] [--dry-run]         Reset keybindings to defaults\n"
+    printf "  ${C_INFO}del${C_RESET}    [--force] [--dry-run]         Delete existing keybinding\n"
+    printf "  ${C_INFO}help${C_RESET}                                 Show this help message\n\n"
+
+    printf "${C_BOLD}${C_WARNING}⚙️ Options${C_RESET}\n"
+    printf "  ${C_MUTED}--dry-run${C_RESET}                            Show what would be done without making changes\n"
+    printf "  ${C_MUTED}--verbose${C_RESET}                            Show additional information\n\n"
+
+    printf "${C_BOLD}${C_SECONDARY}🌟 Examples${C_RESET}\n"
+    printf "  ${C_ACCENT}%s ls${C_RESET}                           List current system keybindings\n" "$SCRIPT_NAME"
+    printf "  ${C_ACCENT}%s dump keybindings.dconf${C_RESET}       Export current keybindings\n" "$SCRIPT_NAME"
+    printf "  ${C_ACCENT}%s sync keybindings.dconf${C_RESET}       Import keybindings from file\n" "$SCRIPT_NAME"
+    printf "  ${C_ACCENT}%s reset${C_RESET}                        Reset all keybindings to defaults\n" "$SCRIPT_NAME"
+    printf "\n"
+}
+
+# ══════════════════════════════════════════════════════════════════
+#                           MAIN FUNCTION
+# ══════════════════════════════════════════════════════════════════
+
+main() {
+    # Initialize terminal and colors
+    init
+
+    # Parse global options
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --verbose)
+                VERBOSE=true
+                shift
+                ;;
+            --help|-h)
+                cmd_help
+                exit 0
+                ;;
+            --*)
+                log "ERROR" "Unknown global option: $1"
+                exit 1
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    # Handle commands
+    local command="${1:-help}"
+    shift || true
+
+    case "$command" in
+        ls|list)
+            cmd_ls "$@"
+            ;;
+        dump|export)
+            cmd_dump "$@"
+            ;;
+        sync|import)
+            cmd_sync "$@"
+            ;;
+        add)
+            cmd_add "$@"
+            ;;
+        reset)
+            cmd_reset "$@"
+            ;;
+        del|delete|rm)
+            # Parse arguments first to handle --help
+            while [[ $# -gt 0 ]]; do
+                case $1 in
+                    --help|-h)
+                        help_del
+                        exit 0
+                        ;;
+                    --dry-run)
+                        shift
+                        ;;
+                    *)
+                        break
+                        ;;
+                esac
+            done
+            cmd_del "$@"
+            ;;
+        help|--help|-h)
+            cmd_help "$@"
+            ;;
+        *)
+            log "ERROR" "Unknown command: $command"
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
