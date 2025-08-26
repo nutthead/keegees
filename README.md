@@ -1,24 +1,12 @@
-# keegees 🔮
+# 🔮 keegees
 
-<!-- Hero Image Placeholder -->
-<!-- 
-Hero Image Description:
-A modern, sleek illustration showing a stylized GNOME desktop environment with a terminal window displaying colorful keybinding information. The image should feature:
-- A dark terminal with syntax-highlighted output showing various keybindings
-- GNOME's signature orange/blue color scheme integrated with cyberpunk neon colors (purple, pink, cyan)
-- Floating keyboard key icons around the terminal representing different shortcuts
-- Subtle GNOME foot logo in the background
-- Clean, professional design with a tech-forward aesthetic
+![KeeGees Hero Image](docs/assets/keegees.webp)
 
-OpenAI GPT-4o Prompt:
-"Create a professional hero image for a GNOME keybinding management CLI tool called 'keegees'. Show a dark terminal window with colorful, syntax-highlighted keybinding output in cyberpunk colors (purple, pink, cyan, gold). Include floating keyboard key icons (like Ctrl, Alt, Super keys) around the terminal. Use GNOME's orange and blue branding subtly in the background with the GNOME foot logo. The overall style should be modern, clean, and tech-forward with a slight cyberpunk aesthetic. Size: 1200x400px, suitable for GitHub README header."
--->
-
-[![Shell](https://img.shields.io/badge/Shell-Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![Shell](https://img.shields.io/badge/Language-Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://www.linux.org/)
-[![GNOME](https://img.shields.io/badge/GNOME-Compatible-4A86CF?style=for-the-badge&logo=gnome&logoColor=white)](https://www.gnome.org/)
+[![GNOME](https://img.shields.io/badge/GNOME-Made&nbsp;For-4A86CF?style=for-the-badge&logo=gnome&logoColor=white)](https://www.gnome.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge)](https://github.com/nutthead/keegees)
+[![Version](https://img.shields.io/badge/Version-0.0.1-blue?style=for-the-badge)](https://github.com/nutthead/keegees)
 
 > **Query and manage GNOME keybindings from the CLI with style**
 
@@ -100,9 +88,12 @@ keegees --help
 
 ## 📋 Commands
 
-### `ls` - List Keybindings ✅ **Implemented**
+### `ls` - List Keybindings
 
 Display keybindings from live system settings with beautiful formatting and schema organization.
+
+<details>
+<summary>Flowchart</summary>
 
 ```mermaid
 flowchart TD
@@ -114,34 +105,36 @@ flowchart TD
     D -->|--help / -h| G[Show Help & Exit]
     D -->|Unknown| H[Error: Unknown Argument]
     D -->|No More Args| I[Show Header]
-    
+
     E --> C
     F --> C
     H --> J[Exit with Error]
-    
+
     I --> K{gsettings Available?}
     K -->|No| L[Error: gsettings Not Found]
     K -->|Yes| M[Wave Effect Animation]
-    
+
     M --> N[Query System Settings]
     N --> O[Apply Schema Whitelist Filter]
     O --> P[Parse SECTION and BINDING Lines]
     P --> Q[Collect Schemas & Bindings]
-    
+
     Q --> R[Sort Schemas Alphabetically]
     R --> S[Separate Empty/Non-Empty Schemas]
     S --> T[Calculate Max Key Length]
-    
+
     T --> U{hide_empty_schemas?}
     U -->|Yes| V[Skip Empty Schemas]
     U -->|No| W[Display Empty Schemas]
-    
+
     V --> X[Display Non-Empty Schemas]
     W --> X
     X --> Y[Sort Keybindings Alphabetically]
     Y --> Z[Display with Dynamic Alignment]
     Z --> AA[Show Total Statistics]
 ```
+
+</details>
 
 **Key Features:**
 
@@ -161,9 +154,12 @@ flowchart TD
 - `org.gnome.settings-daemon.plugins.media-keys` (Media keys)
 - `org.gnome.shell.extensions.tiling-assistant` (Ubuntu Tiling Assistant extension)
 
-### `dump` - Export Keybindings ✅ **Implemented**
+### `dump` - Export Keybindings
 
 Export current GNOME keybinding configurations to a dconf format file for backup, sharing, or version control.
+
+<details>
+<summary>Flowchart</summary>
 
 ```mermaid
 flowchart TD
@@ -176,54 +172,56 @@ flowchart TD
     D -->|Filename| H[Set output_file]
     D -->|Unknown| I[Error: Unknown Argument]
     D -->|No More Args| J{Filename Provided?}
-    
+
     E --> C
     F --> C
     I --> K[Exit with Error]
-    
+
     J -->|No| L[Error: Must Specify Filename]
     J -->|Yes| M[Show Header]
-    
+
     M --> N{dconf Available?}
     N -->|No| O[Error: dconf Not Found]
     N -->|Yes| P{File Exists?}
-    
+
     P -->|No| Q[Skip Overwrite Check]
     P -->|Yes & force=false| R[Request Overwrite Confirmation]
     P -->|Yes & force=true| Q
-    
+
     R -->|y/Y/yes| S[User Confirmed Overwrite]
     R -->|Other| T[Operation Cancelled]
-    
+
     S --> U{Dry Run?}
     Q --> U
     U -->|Yes| V[Show Preview & Exit]
     U -->|No| W[Apply Schema Whitelist]
-    
+
     W --> X[Filter Available Schemas]
     X --> Y[Show Operation Details]
     Y --> Z[Wave Effect Animation]
-    
+
     Z --> AA[Create Temp File]
     AA --> BB[Add Header Comment]
     BB --> CC[Loop Through Schemas]
-    
+
     CC --> DD{Schema Type}
     DD -->|tiling-assistant| EE[Special Tiling Keys Only]
     DD -->|Other| FF[Full dconf dump]
-    
+
     EE --> GG[gsettings get for Each Key]
     FF --> HH[dconf dump PATH/]
-    
+
     GG --> II{All Schemas Done?}
     HH --> II
     II -->|No| CC
     II -->|Yes| JJ{Dump Errors?}
-    
+
     JJ -->|Yes| KK[Remove Temp & Error]
     JJ -->|No| LL[Move Temp to Final]
     LL --> MM[Report Success & Stats]
 ```
+
+</details>
 
 **Key Features:**
 
@@ -241,9 +239,12 @@ flowchart TD
 - **Compatibility**: Perfect roundtrip with `keegees sync`
 - **Portability**: GNOME-specific (not cross-platform)
 
-### `sync` - Import Keybindings ✅ **Implemented**
+### `sync` - Import Keybindings
 
 Import keybindings from a dconf format file, applying them to the live GNOME system settings.
+
+<details>
+<summary>Flowchart</summary>
 
 ```mermaid
 flowchart TD
@@ -258,7 +259,7 @@ flowchart TD
     D -->|Filename| J[Set input_file]
     D -->|Unknown| K[Error: Unknown Argument]
     D -->|No More Args| L{Filename Provided?}
-    
+
     E --> C
     F --> C
     G --> M{Next Arg is Path?}
@@ -266,67 +267,69 @@ flowchart TD
     M -->|No| C
     H --> C
     K --> N[Exit with Error]
-    
+
     L -->|No| O[Error: Must Specify Filename]
     L -->|Yes| P[Show Header]
-    
+
     P --> Q{dconf Available?}
     Q -->|No| R[Error: dconf Not Found]
     Q -->|Yes| S{Input File Exists?}
-    
+
     S -->|No| T[Error: File Not Found]
     S -->|Yes| U[Validate dconf Format]
-    
+
     U -->|Invalid| V[Error: Not dconf Format]
     U -->|Valid| W[Show Operation Details]
-    
+
     W --> X[Extract dconf Paths]
     X --> Y[Filter Keybinding Paths]
     Y --> Z{Any Paths Found?}
-    
+
     Z -->|No| AA[Error: No Keybinding Configs]
     Z -->|Yes| BB[Show Paths to Sync]
-    
+
     BB --> CC{Dry Run?}
     CC -->|Yes| DD[Show Preview & Exit]
     CC -->|No| EE{Force Mode?}
-    
+
     EE -->|No| FF[Interactive Confirmation]
     EE -->|Yes| GG[Skip Confirmation]
-    
+
     FF -->|y/Y/yes| HH[User Confirmed]
     FF -->|Other| II[Operation Cancelled]
-    
+
     HH --> JJ{Create Backup?}
     GG --> JJ
     JJ -->|Yes| KK[Generate Backup Filename]
     JJ -->|No| LL[Wave Sync Animation]
-    
+
     KK --> MM[Create Temp Backup]
     MM --> NN[Dump Current Settings]
     NN --> OO{Backup Success?}
     OO -->|No| PP[Error: Backup Failed]
     OO -->|Yes| QQ[Report Backup Created]
-    
+
     QQ --> LL
     LL --> RR[Loop Through Paths]
-    
+
     RR --> SS[Extract Section for Path]
     SS --> TT[Create Temp Section File]
     TT --> UU[dconf load PATH/]
     UU --> VV{Load Success?}
-    
+
     VV -->|No| WW[Increment Errors]
     VV -->|Yes| XX[Report Path Success]
-    
+
     WW --> YY{More Paths?}
     XX --> YY
     YY -->|Yes| RR
     YY -->|No| ZZ{Any Errors?}
-    
+
     ZZ -->|Yes| AAA[Report Errors]
     ZZ -->|No| BBB[Report Success & Stats]
 ```
+
+</details>
 
 **Key Features:**
 
@@ -337,9 +340,12 @@ flowchart TD
 - **Path validation** - Ensures only keybinding paths are imported
 - **Atomic operations** - Uses dconf load for reliable imports
 
-### `reset` - Reset Keybindings ✅ **Implemented**
+### `reset` - Reset Keybindings
 
 Reset GNOME keybindings to their default values. Implements the same functionality as GNOME Settings "Reset All..." button.
+
+<details>
+<summary>Flowchart</summary>
 
 ```mermaid
 flowchart TD
@@ -352,7 +358,7 @@ flowchart TD
     D -->|--help / -h| H[Show Help & Exit]
     D -->|Unknown| I[Error: Unknown Argument]
     D -->|No More Args| J[Show Header]
-    
+
     E --> C
     F --> K{Schema Value Provided?}
     K -->|No| L[Error: Schema Requires Value]
@@ -360,63 +366,65 @@ flowchart TD
     M --> C
     G --> C
     I --> N[Exit with Error]
-    
+
     J --> O{gsettings Available?}
     O -->|No| P[Error: gsettings Not Found]
     O -->|Yes| Q[Apply Schema Whitelist]
-    
+
     Q --> R{Specific Schema?}
     R -->|Yes| S[Validate Schema in Whitelist]
     R -->|No| T[Get All Available Schemas]
-    
+
     S --> U{Schema in Whitelist?}
     U -->|No| V[Error: Schema Not Recognized]
     U -->|Yes| W[Add to schemas_to_reset]
-    
+
     T --> X[Filter Available by Whitelist]
     X --> Y[Add All to schemas_to_reset]
-    
+
     V --> Z[Show Available Schemas & Exit]
     W --> AA[Show Operation Details]
     Y --> AA
-    
+
     AA --> BB{Specific Schema?}
     BB -->|Yes| CC[Show Single Schema Info]
     BB -->|No| DD[Show Multiple Schemas Info]
-    
+
     CC --> EE[List Target Schema]
     DD --> FF[List All Target Schemas]
-    
+
     EE --> GG{Dry Run?}
     FF --> GG
     GG -->|Yes| HH[Show Preview & Exit]
     GG -->|No| II{Force Mode?}
-    
+
     II -->|No| JJ[Show Confirmation Warning]
     II -->|Yes| KK[Skip Confirmation]
-    
+
     JJ --> LL[Interactive Confirmation]
     LL -->|y/Y/yes| MM[User Confirmed]
     LL -->|Other| NN[Operation Cancelled]
-    
+
     MM --> OO[Wave Reset Animation]
     KK --> OO
     OO --> PP[Initialize Error Counter]
     PP --> QQ[Loop Through Schemas]
-    
+
     QQ --> RR[gsettings reset-recursively]
     RR --> SS{Reset Success?}
     SS -->|No| TT[Increment Errors & Log]
     SS -->|Yes| UU[Report Schema Success]
-    
+
     TT --> VV{More Schemas?}
     UU --> VV
     VV -->|Yes| QQ
     VV -->|No| WW{Any Errors?}
-    
+
     WW -->|Yes| XX[Report Errors & Exit]
     WW -->|No| YY[Success with Schema Count]
 ```
+
+</details>
 
 **Key Features:**
 
@@ -427,9 +435,12 @@ flowchart TD
 - **Schema Validation** - Only allows official GNOME keybinding schemas
 - **Professional Output** - Beautiful animations and progress reporting
 
-### `del` - Delete Keybindings ✅ **Implemented**
+### `del` - Delete Keybindings
 
 Safely delete individual keybindings with comprehensive validation and backup options.
+
+<details>
+<summary>Flowchart</summary>
 
 ```mermaid
 flowchart TD
@@ -443,7 +454,7 @@ flowchart TD
     D -->|--help / -h| I[Show Help & Exit]
     D -->|Unknown| J[Error: Unknown Argument]
     D -->|No More Args| K[Validate Required Args]
-    
+
     E --> C
     F --> L{Schema Value Provided?}
     L -->|No| M[Error: Schema Requires Value]
@@ -455,49 +466,51 @@ flowchart TD
     Q --> C
     H --> C
     J --> R[Exit with Error]
-    
+
     K --> S{Schema Provided?}
     S -->|No| T[Error: Must Specify Schema]
     S -->|Yes| U{Key Provided?}
     U -->|No| V[Error: Must Specify Key]
     U -->|Yes| W[Show Header]
-    
+
     W --> X{gsettings Available?}
     X -->|No| Y[Error: gsettings Not Found]
     X -->|Yes| Z[Verify Target Exists]
-    
+
     Z --> AA[gsettings list-keys for Schema]
     AA --> BB{Key in Schema?}
     BB -->|No| CC[Error: Key Not Found]
     BB -->|Yes| DD[gsettings get Current Value]
-    
+
     DD --> EE{Value Exists?}
     EE -->|No| FF[Error: Keybinding Not Found]
     EE -->|Yes| GG[Set target_exists=true]
-    
+
     GG --> HH[Display Target Info]
     HH --> II[Show Schema, Key, and Value]
     II --> JJ{Dry Run?}
-    
+
     JJ -->|Yes| KK[Show Preview & Exit]
     JJ -->|No| LL{Force Mode?}
-    
+
     LL -->|No| MM[Show Confirmation Warning]
     LL -->|Yes| NN[Skip Confirmation]
-    
+
     MM --> OO[Interactive Confirmation]
     OO -->|y/Y/yes| PP[User Confirmed]
     OO -->|Other| QQ[Operation Cancelled]
-    
+
     PP --> RR[Wave Delete Animation]
     NN --> RR
     RR --> SS[delete_system_keybinding Function]
     SS --> TT[gsettings reset Schema Key]
     TT --> UU{Reset Success?}
-    
+
     UU -->|No| VV[Error: Failed to Delete]
     UU -->|Yes| WW[Success with Details]
 ```
+
+</details>
 
 **Safety Features:**
 
@@ -507,9 +520,12 @@ flowchart TD
 - **System integration** - Direct gsettings operations for reliable deletion
 - **Comprehensive error handling** - Graceful failure scenarios
 
-### `add` - Add Keybindings ✅ **Implemented**
+### `add` - Add Keybindings
 
 Interactively add new keybindings with comprehensive validation, conflict detection, and beautiful step-by-step guidance.
+
+<details>
+<summary>Flowchart</summary>
 
 ```mermaid
 flowchart TD
@@ -520,102 +536,104 @@ flowchart TD
     D -->|--help / -h| F[Show Help & Exit]
     D -->|Unknown| G[Error: Unknown Option]
     D -->|No More Args| H[Show Header]
-    
+
     E --> C
     G --> I[Show Help & Exit]
-    
+
     H --> J[Apply Schema Whitelist]
     J --> K[Query gsettings list-schemas]
     K --> L{Schemas Available?}
     L -->|No| M[Error: No Schemas Available]
     L -->|Yes| N[Filter to Whitelisted Schemas]
-    
+
     N --> O{Any Whitelisted Schemas?}
     O -->|No| P[Error: No Whitelisted Schemas]
     O -->|Yes| Q[Step 1: Schema Selection]
-    
+
     Q --> R[Display Numbered Schema List]
     R --> S[Read User Choice]
     S --> T{Valid Number?}
     T -->|No| U[Error: Invalid Selection]
     T -->|Yes| V[Set selected_schema]
-    
+
     V --> W[Step 2: Key Name Input]
     W --> X[Read Key Name]
     X --> Y{Key Name Empty?}
     Y -->|Yes| Z[Error: Empty Key Name]
     Y -->|No| AA[Check if Key Exists]
-    
+
     AA --> BB{Key Exists & Has Value?}
     BB -->|Yes| CC[Show Existing Value Warning]
     BB -->|No| DD[Step 3: Key Combination]
-    
+
     CC --> EE[Overwrite Confirmation]
     EE -->|y/Y/yes| FF[User Confirmed Overwrite]
     EE -->|Other| GG[Operation Cancelled]
-    
+
     FF --> DD
     DD --> HH[Show Key Combination Examples]
     HH --> II[Read Key Combination]
     II --> JJ{Combination Empty?}
     JJ -->|Yes| KK[Error: Empty Combination]
     JJ -->|No| LL[Validate Format with Regex]
-    
+
     LL --> MM{Format Valid?}
     MM -->|No| NN[Show Format Warning]
     MM -->|Yes| OO[Step 4: Conflict Detection]
-    
+
     NN --> PP[Format Confirmation]
     PP -->|y/Y/yes| QQ[User Accepts Format]
     PP -->|Other| RR[Operation Cancelled]
-    
+
     QQ --> OO
     OO --> SS[Initialize Conflict Variables]
     SS --> TT[Loop Through All Schemas]
-    
+
     TT --> UU[gsettings list-keys for Schema]
     UU --> VV[Loop Through Schema Keys]
     VV --> WW[gsettings get Value]
     WW --> XX{Value Matches Combination?}
-    
+
     XX -->|Yes & Different Key| YY[Add to Conflicts]
     XX -->|No| ZZ{More Keys in Schema?}
     YY --> ZZ
-    
+
     ZZ -->|Yes| VV
     ZZ -->|No| AAA{More Schemas?}
     AAA -->|Yes| TT
     AAA -->|No| BBB{Conflicts Found?}
-    
+
     BBB -->|Yes| CCC[Display Conflicts List]
     BBB -->|No| DDD[Report No Conflicts]
-    
+
     CCC --> EEE[Conflict Confirmation]
     EEE -->|y/Y/yes| FFF[User Accepts Conflicts]
     EEE -->|Other| GGG[Operation Cancelled]
-    
+
     DDD --> HHH[Step 5: Preview Summary]
     FFF --> HHH
     HHH --> III[Show Complete Summary]
     III --> JJJ{Dry Run?}
-    
+
     JJJ -->|Yes| KKK[Show gsettings Command & Exit]
     JJJ -->|No| LLL[Final Confirmation]
-    
+
     LLL -->|y/Y/yes| MMM[User Final Confirm]
     LLL -->|Other| NNN[Operation Cancelled]
-    
+
     MMM --> OOO[Step 6: Execute Addition]
     OOO --> PPP[gsettings set Command]
     PPP --> QQQ{gsettings Success?}
-    
+
     QQQ -->|No| RRR[Error: Failed to Set]
     QQQ -->|Yes| SSS[Verification gsettings get]
-    
+
     SSS --> TTT{Verification Success?}
     TTT -->|No| UUU[Warning: Verification Failed]
     TTT -->|Yes| VVV[Success with Details]
 ```
+
+</details>
 
 **Key Features:**
 
@@ -636,9 +654,12 @@ flowchart TD
 5. **Preview Summary**: Complete overview of what will be added with all details
 6. **Execution**: gsettings integration with verification and success confirmation
 
-### `help` - Show Help Information ✅ **Implemented**
+### `help` - Show Help Information
 
 Display comprehensive help information for keegees commands with intelligent routing to specific subcommand documentation.
+
+<details>
+<summary>Flowchart</summary>
 
 ```mermaid
 flowchart TD
@@ -646,13 +667,13 @@ flowchart TD
     A1[keegees --help / -h] --> C[cmd_help with no args]
     A2[keegees <unknown-command>] --> D[Show Error Message]
     D --> C
-    
+
     B -->|No Args| C[Show General Help]
     B -->|Has Args| E[Get Subcommand Argument]
-    
+
     E --> F[Subcommand Routing]
     F --> G{Subcommand Type}
-    
+
     G -->|ls / list| H[help_ls Function]
     G -->|dump| I[help_dump Function]
     G -->|sync| J[help_sync Function]
@@ -660,17 +681,17 @@ flowchart TD
     G -->|reset| L[help_reset Function]
     G -->|del / delete / rm| M[help_del Function]
     G -->|Unknown| N[Log Error Message]
-    
+
     H --> O[Show ls Help & Return 0]
     I --> P[Show dump Help & Return 0]
     J --> Q[Show sync Help & Return 0]
     K --> R[Show add Help & Return 0]
     L --> S[Show reset Help & Return 0]
     M --> T[Show del Help & Return 0]
-    
+
     N --> U[Log Available Subcommands]
     U --> V[Return 1 - Error]
-    
+
     C --> W[show_header Function]
     W --> X[Display Usage Section]
     X --> Y[Display Commands Section]
@@ -678,6 +699,8 @@ flowchart TD
     Z --> AA[Display Examples Section]
     AA --> BB[Return 0 - Success]
 ```
+
+</details>
 
 **Key Features:**
 
