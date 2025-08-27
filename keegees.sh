@@ -89,7 +89,7 @@ set -euo pipefail
 # ══════════════════════════════════════════════════════════════════
 
 readonly SCRIPT_NAME="keybind"
-readonly VERSION="0.0.1"
+readonly VERSION="0.0.2"
 
 # Animation sequences for different states
 readonly SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')

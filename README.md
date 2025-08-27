@@ -4,7 +4,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://www.linux.org/)
 [![GNOME](https://img.shields.io/badge/GNOME-Made&nbsp;For-4A86CF?style=for-the-badge&logo=gnome&logoColor=white)](https://www.gnome.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-0.0.1-blue?style=for-the-badge)](https://github.com/nutthead/keegees)
+[![Version](https://img.shields.io/badge/Version-0.0.2-blue?style=for-the-badge)](https://github.com/nutthead/keegees)
 
 ![KeeGees Hero Image](docs/assets/keegees.webp)
 
@@ -23,7 +23,7 @@ subtle animations and 24-bit color support.
 ## ⚠️ WARNING
 
 Always use `--dry-run` before making destructive/mutating changes to your system keybindings, as
-keegees is in version 0.0.1 and may contain bugs.
+keegees is in version 0.0.2 and may contain bugs.
 
 ## ✨ Overview
 
@@ -76,7 +76,7 @@ keegees --help
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │                                    KEEGEES                                   │
 │                        GNOME keybinding management system                    │
-│                                  Version 0.0.1                               │
+│                                  Version 0.0.2                               │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 
@@ -175,7 +175,7 @@ flowchart TD
 
 ### `dump` - Export Keybindings
 
-Export current GNOME keybinding configurations to a dconf format file for backup, sharing, or version 0.0.1control.
+Export current GNOME keybinding configurations to a dconf format file for backup, sharing, or version 0.0.2control.
 
 <details>
 <summary>Flowchart</summary>
