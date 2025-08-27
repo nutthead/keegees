@@ -33,8 +33,8 @@ jobs:
       - name: 📊 Calculate Next Version
         id: get_next_version
         run: |
-          # Get latest tag or default to 0.0.1
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v-0.0.1")
+          # Get latest tag or default to 0.0.0
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v-0.0.0")
           
           # Extract version number (remove v- prefix)
           CURRENT_VERSION=${LATEST_TAG#v-}
