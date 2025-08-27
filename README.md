@@ -175,7 +175,7 @@ flowchart TD
 
 ### `dump` - Export Keybindings
 
-Export current GNOME keybinding configurations to a dconf format file for backup, sharing, or version control.
+Export current GNOME keybinding configurations to a dconf format file for backup, sharing, or version 0.0.1control.
 
 <details>
 <summary>Flowchart</summary>
