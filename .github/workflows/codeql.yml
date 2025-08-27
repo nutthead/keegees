@@ -13,14 +13,49 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write
+      contents: read
       
     steps:
     - uses: actions/checkout@v4
-    - uses: ludeeus/action-shellcheck@2.0.0
-      with:
-        format: sarif
-        output: shellcheck.sarif
-    - uses: github/codeql-action/upload-sarif@v3
-      if: always()
+    
+    - name: Install shellcheck-sarif converter
+      run: |
+        curl -sSL https://github.com/psastras/sarif-rs/releases/download/shellcheck-sarif-v0.8.0/shellcheck-sarif-x86_64-unknown-linux-gnu -o shellcheck-sarif
+        chmod +x shellcheck-sarif
+        sudo mv shellcheck-sarif /usr/local/bin/
+    
+    - name: ShellCheck Analysis (Ultra-Clean)
+      run: |
+        set -euo pipefail
+        
+        # Single command with comprehensive discovery (no temp files, no deps)
+        scripts=$(
+          {
+            find . -type f \( -name "*.sh" -o -name "*.bash" -o -name "*.ksh" -o -name "*.zsh" -o -name ".bashrc" -o -name ".bash_*" -o -name "*.shlib" \) -not -path "*/.git/*"
+            find . -type f -perm /111 -not -path "*/.git/*" -exec sh -c 'head -1 "$1" | grep -q "^#!.*sh"' _ {} \; -print 2>/dev/null || true
+          } | sort -u
+        )
+        
+        # Validate and process
+        if [ -z "$scripts" ]; then
+          echo "::error::No shell scripts found!"
+          echo "::error::Expected to find files with extensions: .sh, .bash, .ksh, .zsh, .shlib"
+          echo "::error::Or executable files with shell shebangs (#!/bin/bash, #!/bin/sh, etc.)"
+          echo "::error::This could indicate:"
+          echo "::error::  1. No shell scripts exist in this repository"
+          echo "::error::  2. Scripts are in unexpected locations or have different extensions"
+          echo "::error::  3. File permissions are preventing detection"
+          echo "::error::  4. The workflow is running on the wrong branch/repository"
+          exit 1
+        fi
+        
+        echo "Found $(echo "$scripts" | wc -l) shell scripts:"
+        echo "$scripts"
+        
+        # Direct processing (pure pipeline, no temp files)
+        echo "$scripts" | xargs shellcheck -f json | shellcheck-sarif > shellcheck.sarif
+    
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: shellcheck.sarif
