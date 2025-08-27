@@ -166,7 +166,7 @@ jobs:
           $COMMITS
           
           ---
-          **⚠️ Version 0.0.x Notice**: This is an early release. Always use \`--dry-run\` before making changes to your system keybindings.
+          ${EARLY_WARNING}
           EOF
 
       # Step 9: Create GitHub Release (fully automated)
