@@ -1,6 +1,18 @@
 name: 🏷️ Auto Tag and Release
 
 # Triggers on push to master branch (fully automated)
+# 
+# IMPORTANT: This workflow requires an ADMIN_TOKEN secret to bypass branch protection rules.
+# The ADMIN_TOKEN must be a Personal Access Token or GitHub App token with:
+# - Contents: Write permission
+# - Actions: Write permission  
+# - Pull requests: Write permission
+# - Repository administration permission (to bypass branch protection)
+#
+# To set up the ADMIN_TOKEN:
+# 1. Create a Personal Access Token with the above permissions
+# 2. Add it as a repository secret named 'ADMIN_TOKEN'
+# 3. Fallback to GITHUB_TOKEN if ADMIN_TOKEN is not available
 on:
   push:
     branches: [ master ]
@@ -21,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
 
       # Step 2: Validate shell scripts (maintain keegees quality standards)
       - name: 🔍 Run ShellCheck
@@ -103,8 +115,11 @@ jobs:
           TAG="v${{ steps.get_next_version.outputs.version }}"
           git tag -a "$TAG" -m "🤖 Automated version tag: $TAG"
           # Push commits first, then tag (commits have [skip ci] to prevent recursion)
-          git push
+          # Use --force-with-lease for safer pushes with admin permissions
+          git push --force-with-lease
           git push origin "$TAG"
+        env:
+          GITHUB_TOKEN: ${{ secrets.ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
 
       # Step 7: Create release archives (source code)
       - name: 📦 Create Release Archives
