@@ -133,7 +133,7 @@ The main executable (1889+ lines of bash) implements:
 
 <workflows>
 ```workflow
-Workflow: NewFeaturWorkflow
+Workflow: NewFeatureWorkflow
 
 Context:
     User wants to implement a new feature in the keegees project.
