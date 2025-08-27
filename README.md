@@ -814,7 +814,7 @@ keegees dump current-state.dconf
 
 ```
 keegees/
-├── keegees           # Main executable script (1889 lines)
+├── keegees.sh        # Main executable script (1889 lines)
 ├── install.sh        # POSIX-compliant installation script
 ├── .shellcheckrc     # ShellCheck configuration for code quality
 ├── README.md         # This file

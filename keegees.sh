@@ -468,7 +468,8 @@ cmd_ls() {
     printf "${C_MUTED}%s${C_RESET}\n" "$(printf '─%.0s' $(seq 1 $(echo "$COLS - 10" | bc)))"
 
     local count=0
-    local parse_output=$(query_system_settings)
+    local parse_output
+    parse_output=$(query_system_settings)
 
     # First pass: collect all schemas and their bindings
     local -a all_schemas
