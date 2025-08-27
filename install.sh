@@ -14,7 +14,7 @@ QUIET=0             # if 1, minimal output
 
 script_dir() {
   # Resolve this script's directory (absolute)
-  # shellcheck disable=SC2312
+  # shellcheck disable=SC2312,SC1007
   CDPATH= cd -- "$(dirname -- "$0")" && pwd -P
 }
 
@@ -48,7 +48,7 @@ Installs:
   ${BIN_NAME} -> ${INSTALL_DIR}/${BIN_NAME}
 
 Source:
-  bs.scripts/sh/keegees/keegees
+  keegees.sh
 
 Requirements:
   - bash (for script execution)
@@ -77,7 +77,7 @@ done
 
 # Resolve paths
 SCRIPT_DIR="$(script_dir)"
-SOURCE="${SCRIPT_DIR}/keegees"
+SOURCE="${SCRIPT_DIR}/keegees.sh"
 TARGET="${INSTALL_DIR}/${BIN_NAME}"
 
 # Sanity checks

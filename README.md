@@ -814,7 +814,7 @@ keegees dump current-state.dconf
 
 ```
 keegees/
-├── keegees           # Main executable script (1889 lines)
+├── keegees.sh        # Main executable script (1889 lines)
 ├── install.sh        # POSIX-compliant installation script
 ├── .shellcheckrc     # ShellCheck configuration for code quality
 ├── README.md         # This file
@@ -869,8 +869,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-**[⭐ Star this project](https://github.com/nutthead/keegees)** • **[🐛 Report Issues](https://github.com/nutthead/keegees/issues)** • **[💡 Request Features](https://github.com/nutthead/keegees/discussions)**
+**[⭐ Star this project](https://github.com/nutthead/keegees)** •
+**[🐛 Report Issues](https://github.com/nutthead/keegees/issues)** •
+**[💡 Request Features](https://github.com/nutthead/keegees/discussions)**
 
-_Built with ❤️ and 🤖 for the GNOME community_
+<!-- markdownlint-disable-next-line MD036 -->
+**Built with ❤️ and 🤖 for the GNOME community**
 
 </div>
