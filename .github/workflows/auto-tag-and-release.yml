@@ -129,12 +129,12 @@ jobs:
         id: release_notes
         run: |
           # Get commits since last tag
-          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
           
           if [ -n "$LAST_TAG" ]; then
-            COMMITS=$(git log $LAST_TAG..HEAD --oneline --no-merges)
+            COMMITS=$(git log $LAST_TAG..HEAD --oneline --no-merges | grep -v "🤖 Automated version bump")
           else
-            COMMITS=$(git log --oneline --no-merges)
+            COMMITS=$(git log --oneline --no-merges | grep -v "🤖 Automated version bump")
           fi
           
           # Create release notes
