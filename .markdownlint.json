@@ -3,6 +3,9 @@
         "line_length": 120,
         "code_blocks": false
     },
+    "MD022": false,
+    "MD031": false,
     "MD033": false,
-    "MD040": false
+    "MD040": false,
+    "MD046": false
 }
