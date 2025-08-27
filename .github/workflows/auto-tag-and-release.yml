@@ -132,9 +132,18 @@ jobs:
           LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
           
           if [ -n "$LAST_TAG" ]; then
-            COMMITS=$(git log $LAST_TAG..HEAD --oneline --no-merges | grep -v "🤖 Automated version bump")
+            COMMITS=$(git log $LAST_TAG..HEAD --oneline --no-merges | grep -v "🔄 Sync version")
           else
-            COMMITS=$(git log --oneline --no-merges | grep -v "🤖 Automated version bump")
+            COMMITS=$(git log --oneline --no-merges | grep -v "🔄 Sync version")
+          fi
+          
+          # Set dynamic version warning based on version
+          NEW_VERSION="${{ steps.get_next_version.outputs.version }}"
+          MAJOR=$(echo "$NEW_VERSION" | cut -d. -f1)
+          if [ "$MAJOR" = "0" ]; then
+            EARLY_WARNING="**⚠️ Early Release Notice**: This is a pre-1.0 release. Always use \`--dry-run\` before making changes to your system keybindings."
+          else
+            EARLY_WARNING="**✅ Stable Release**: Ready for production use."
           fi
           
           # Create release notes
