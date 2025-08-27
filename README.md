@@ -1,12 +1,12 @@
-# 🔮 keegees
-
-![KeeGees Hero Image](docs/assets/keegees.webp)
+# ⌨️ keegees
 
 [![Shell](https://img.shields.io/badge/Language-Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://www.linux.org/)
 [![GNOME](https://img.shields.io/badge/GNOME-Made&nbsp;For-4A86CF?style=for-the-badge&logo=gnome&logoColor=white)](https://www.gnome.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Version](https://img.shields.io/badge/Version-0.0.1-blue?style=for-the-badge)](https://github.com/nutthead/keegees)
+
+![KeeGees Hero Image](docs/assets/keegees.webp)
 
 > **Query and manage GNOME keybindings from the CLI with style**
 
@@ -15,6 +15,10 @@ _"style"_.
 
 Featuring schema-based organization, safety mechanisms, and a beautiful terminal interface with
 subtle animations and 24-bit color support.
+
+## 📽️ Introduction
+
+![keegees demo](docs/assets/keegees.gif)
 
 ## ⚠️ WARNING
 
@@ -68,11 +72,13 @@ keegees --help
 ## 💻 CLI Usage
 
 ```
+🔮                                                                            🔮
 ╭──────────────────────────────────────────────────────────────────────────────╮
-│                                 🔮 KEEGEES 🔮                                │
+│                                    KEEGEES                                   │
 │                        GNOME keybinding management system                    │
 │                                  Version 1.0.0                               │
 ╰──────────────────────────────────────────────────────────────────────────────╯
+
 
 📖 Usage
   keybind <command> [options]
