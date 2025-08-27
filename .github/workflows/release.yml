@@ -12,24 +12,24 @@ permissions:
   packages: write
 
 jobs:
-  auto-tag-and-release:
+  # Job 1: Validate and Calculate Version
+  validate-and-version:
     runs-on: ubuntu-latest
-    
+    outputs:
+      version: ${{ steps.get_next_version.outputs.version }}
+      tag: ${{ steps.get_next_version.outputs.tag }}
     steps:
-      # Step 1: Checkout with full history for proper versioning
       - name: 🔄 Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 2: Validate shell scripts (maintain keegees quality standards)
       - name: 🔍 Run ShellCheck
         run: |
           shellcheck keegees.sh
           shellcheck install.sh
 
-      # Step 3: Calculate Next Version for custom tag format  
       - name: 📊 Calculate Next Version
         id: get_next_version
         run: |
@@ -50,10 +50,20 @@ jobs:
           echo "tag=v$NEXT_VERSION" >> $GITHUB_OUTPUT
           echo "📊 Next version will be: v$NEXT_VERSION"
 
-      # Step 4: Update all version references in codebase
+  # Job 2: Update Version References and Create Tag
+  version-sync-and-tag:
+    runs-on: ubuntu-latest
+    needs: validate-and-version
+    steps:
+      - name: 🔄 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
+
       - name: 🔄 Synchronize Version Across Files
         run: |
-          NEW_VERSION="${{ steps.get_next_version.outputs.version }}"
+          NEW_VERSION="${{ needs.validate-and-version.outputs.version }}"
           echo "🔄 Updating version to $NEW_VERSION across all files..."
           
           # Update README.md version badge
@@ -74,10 +84,9 @@ jobs:
           echo "  README.md warning: $(grep -o 'version [0-9.]*' README.md)"
           echo "  keegees.sh VERSION: $(grep -o 'readonly VERSION=\"[0-9.]*\"' keegees.sh)"
 
-      # Step 5: Commit version updates before creating tag
       - name: 💾 Commit Version Updates
         run: |
-          NEW_VERSION="${{ steps.get_next_version.outputs.version }}"
+          NEW_VERSION="${{ needs.validate-and-version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
@@ -97,40 +106,47 @@ jobs:
             [skip ci]"
           fi
 
-      # Step 6: Create the custom formatted tag
-      - name: 🏷️ Create Custom Tag
+      - name: 🏷️ Create and Push Tag
         run: |
-          TAG="v${{ steps.get_next_version.outputs.version }}"
+          TAG="${{ needs.validate-and-version.outputs.tag }}"
           git tag -a "$TAG" -m "🤖 Automated version tag: $TAG"
           # Push commits first, then tag (commits have [skip ci] to prevent recursion)
           git push
           git push origin "$TAG"
 
-      # Step 7: Create release archives (source code)
+  # Job 3: Create Release Assets
+  create-release-assets:
+    runs-on: ubuntu-latest
+    needs: [validate-and-version, version-sync-and-tag]
+    steps:
+      - name: 🔄 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
+
       - name: 📦 Create Release Archives
         run: |
           # Create release directory
           mkdir -p release
           
           # Create tarball
-          tar -czf "release/keegees-${{ steps.get_next_version.outputs.version }}.tar.gz" \
+          tar -czf "release/keegees-${{ needs.validate-and-version.outputs.version }}.tar.gz" \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='release' \
-            --transform "s|^|keegees-${{ steps.get_next_version.outputs.version }}/|" \
+            --transform "s|^|keegees-${{ needs.validate-and-version.outputs.version }}/|" \
             .
           
           # Create zip archive
-          zip -r "release/keegees-${{ steps.get_next_version.outputs.version }}.zip" \
+          zip -r "release/keegees-${{ needs.validate-and-version.outputs.version }}.zip" \
             . \
             -x '.git/*' '.github/*' 'release/*'
 
-      # Step 8: Generate release notes
       - name: 📝 Generate Release Notes
-        id: release_notes
         run: |
           # Get commits since last tag (exclude current version being created)
-          LAST_TAG=$(git describe --tags --abbrev=0 --exclude="v${{ steps.get_next_version.outputs.version }}" 2>/dev/null || echo "")
+          LAST_TAG=$(git describe --tags --abbrev=0 --exclude="${{ needs.validate-and-version.outputs.tag }}" 2>/dev/null || echo "")
           
           if [ -n "$LAST_TAG" ]; then
             COMMITS=$(git log $LAST_TAG..HEAD --oneline --no-merges | grep -v "🔄 Sync version" || true)
@@ -139,7 +155,7 @@ jobs:
           fi
           
           # Set dynamic version warning based on version
-          NEW_VERSION="${{ steps.get_next_version.outputs.version }}"
+          NEW_VERSION="${{ needs.validate-and-version.outputs.version }}"
           MAJOR=$(echo "$NEW_VERSION" | cut -d. -f1)
           if [ "$MAJOR" = "0" ]; then
             EARLY_WARNING="**⚠️ Early Release Notice**: This is a pre-1.0 release. Always use \`--dry-run\` before making changes to your system keybindings."
@@ -149,7 +165,7 @@ jobs:
           
           # Create release notes
           cat << EOF > release_notes.md
-          ## 🚀 keegees v${{ steps.get_next_version.outputs.version }}
+          ## 🚀 keegees ${{ needs.validate-and-version.outputs.tag }}
           
           **Professional GNOME keybinding management tool**
           
@@ -161,9 +177,9 @@ jobs:
           ### ⚡ Quick Install
           \`\`\`bash
           # Download and extract
-          wget https://github.com/nutthead/keegees/releases/download/v${{ steps.get_next_version.outputs.version }}/keegees-${{ steps.get_next_version.outputs.version }}.tar.gz
-          tar -xzf keegees-${{ steps.get_next_version.outputs.version }}.tar.gz
-          cd keegees-${{ steps.get_next_version.outputs.version }}
+          wget https://github.com/nutthead/keegees/releases/download/${{ needs.validate-and-version.outputs.tag }}/keegees-${{ needs.validate-and-version.outputs.version }}.tar.gz
+          tar -xzf keegees-${{ needs.validate-and-version.outputs.version }}.tar.gz
+          cd keegees-${{ needs.validate-and-version.outputs.version }}
           ./install.sh
           \`\`\`
           
@@ -179,27 +195,43 @@ jobs:
           ${EARLY_WARNING}
           EOF
 
-      # Step 9: Create GitHub Release (fully automated)
+      - name: 📤 Upload Release Assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            release/
+            release_notes.md
+
+  # Job 4: Create GitHub Release
+  create-github-release:
+    runs-on: ubuntu-latest
+    needs: [validate-and-version, version-sync-and-tag, create-release-assets]
+    steps:
+      - name: 📥 Download Release Assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+
       - name: 🎉 Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.get_next_version.outputs.version }}
-          name: "keegees v${{ steps.get_next_version.outputs.version }}"
+          tag_name: ${{ needs.validate-and-version.outputs.tag }}
+          name: "keegees ${{ needs.validate-and-version.outputs.tag }}"
           body_path: release_notes.md
           draft: false
           prerelease: false
           generate_release_notes: true
           make_latest: true
           files: |
-            release/keegees-${{ steps.get_next_version.outputs.version }}.tar.gz
-            release/keegees-${{ steps.get_next_version.outputs.version }}.zip
+            release/keegees-${{ needs.validate-and-version.outputs.version }}.tar.gz
+            release/keegees-${{ needs.validate-and-version.outputs.version }}.zip
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 10: Output summary
       - name: ✅ Release Summary
         run: |
-          echo "🎉 Successfully created release: v${{ steps.get_next_version.outputs.version }}"
+          echo "🎉 Successfully created release: ${{ needs.validate-and-version.outputs.tag }}"
           echo "📦 Release assets:"
-          echo "  - keegees-${{ steps.get_next_version.outputs.version }}.tar.gz"
-          echo "  - keegees-${{ steps.get_next_version.outputs.version }}.zip"
-          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.get_next_version.outputs.version }}"
+          echo "  - keegees-${{ needs.validate-and-version.outputs.version }}.tar.gz"
+          echo "  - keegees-${{ needs.validate-and-version.outputs.version }}.zip"
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate-and-version.outputs.tag }}"
