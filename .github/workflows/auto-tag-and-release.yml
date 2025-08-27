@@ -102,7 +102,7 @@ jobs:
         run: |
           TAG="v-${{ steps.get_next_version.outputs.version }}"
           git tag -a "$TAG" -m "🤖 Automated version tag: $TAG"
-          git push
+          # Only push the tag to avoid triggering the workflow recursively
           git push origin "$TAG"
 
       # Step 7: Create release archives (source code)
