@@ -50,14 +50,62 @@ jobs:
           echo "tag=v-$NEXT_VERSION" >> $GITHUB_OUTPUT
           echo "📊 Next version will be: v-$NEXT_VERSION"
 
-      # Step 4: Create the custom formatted tag
+      # Step 4: Update all version references in codebase
+      - name: 🔄 Synchronize Version Across Files
+        run: |
+          NEW_VERSION="${{ steps.get_next_version.outputs.version }}"
+          echo "🔄 Updating version to $NEW_VERSION across all files..."
+          
+          # Update README.md version badge
+          sed -i "s/Version-[0-9.]*/Version-$NEW_VERSION/g" README.md
+          
+          # Update README.md version warning text
+          sed -i "s/version [0-9.]*/version $NEW_VERSION/g" README.md
+          
+          # Update CLI example in README.md (the "Version 1.0.0" display)
+          sed -i "s/Version [0-9.]\+/Version $NEW_VERSION/g" README.md
+          
+          # Update keegees.sh VERSION constant
+          sed -i "s/readonly VERSION=\"[0-9.]*\"/readonly VERSION=\"$NEW_VERSION\"/g" keegees.sh
+          
+          # Verify changes
+          echo "📊 Version references updated:"
+          echo "  README.md badge: $(grep -o 'Version-[0-9.]*' README.md)"
+          echo "  README.md warning: $(grep -o 'version [0-9.]*' README.md)"
+          echo "  keegees.sh VERSION: $(grep -o 'readonly VERSION=\"[0-9.]*\"' keegees.sh)"
+
+      # Step 5: Commit version updates before creating tag
+      - name: 💾 Commit Version Updates
+        run: |
+          NEW_VERSION="${{ steps.get_next_version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Add updated files
+          git add README.md keegees.sh
+          
+          # Check if there are changes to commit
+          if git diff --cached --quiet; then
+            echo "No version updates needed"
+          else
+            git commit -m "🔄 Sync version to $NEW_VERSION across all files
+            
+            - Update README.md version badge and references
+            - Update keegees.sh VERSION constant
+            - Ensure consistency across codebase
+            
+            [skip ci]"
+          fi
+
+      # Step 6: Create the custom formatted tag
       - name: 🏷️ Create Custom Tag
         run: |
           TAG="v-${{ steps.get_next_version.outputs.version }}"
           git tag -a "$TAG" -m "🤖 Automated version tag: $TAG"
+          git push
           git push origin "$TAG"
 
-      # Step 5: Create release archives (source code)
+      # Step 7: Create release archives (source code)
       - name: 📦 Create Release Archives
         run: |
           # Create release directory
@@ -76,7 +124,7 @@ jobs:
             . \
             -x '.git/*' '.github/*' 'release/*'
 
-      # Step 6: Generate release notes
+      # Step 8: Generate release notes
       - name: 📝 Generate Release Notes
         id: release_notes
         run: |
@@ -121,7 +169,7 @@ jobs:
           **⚠️ Version 0.0.x Notice**: This is an early release. Always use \`--dry-run\` before making changes to your system keybindings.
           EOF
 
-      # Step 7: Create GitHub Release (fully automated)
+      # Step 9: Create GitHub Release (fully automated)
       - name: 🎉 Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -137,24 +185,7 @@ jobs:
             release/keegees-${{ steps.get_next_version.outputs.version }}.zip
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 8: Update README badge (optional enhancement)
-      - name: 🏷️ Update Version Badge
-        run: |
-          NEW_VERSION="${{ steps.get_next_version.outputs.version }}"
-          sed -i "s/Version-[0-9.]*-blue/Version-$NEW_VERSION-blue/g" README.md
-          
-          # Commit the updated README if changed
-          if git diff --quiet README.md; then
-            echo "No README changes needed"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add README.md
-            git commit -m "📝 Update version badge to v-$NEW_VERSION [skip ci]"
-            git push
-          fi
-
-      # Step 9: Output summary
+      # Step 10: Output summary
       - name: ✅ Release Summary
         run: |
           echo "🎉 Successfully created release: v-${{ steps.get_next_version.outputs.version }}"
