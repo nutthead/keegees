@@ -22,7 +22,7 @@ comprehensive error handling and addressing edge-case scenarios.
 - iterative-improvement
 - micro-refactoring
 - docker-based-testing
-- ad-hoc-testin
+- ad-hoc-testing
 
 ---
 
