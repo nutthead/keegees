@@ -149,7 +149,7 @@ Start:
     iterative-improvement
     micro-refactoring
     docker-based-testing
-    ad-hoc-testin
+    ad-hoc-testing
   ]
 
   forEach adoptedMindset
