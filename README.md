@@ -10,23 +10,36 @@
 
 > **Query and manage GNOME keybindings from the CLI with style**
 
-keegees is a comprehensive command-line tool for managing GNOME desktop keybindings with elegance and precision.
-Featuring schema-based organization, safety mechanisms, and a beautiful terminal interface with animations and 24-bit
-color support.
+keegees is a comprehensive command-line tool for managing GNOME desktop keybindings with
+_"style"_.
+
+Featuring schema-based organization, safety mechanisms, and a beautiful terminal interface with
+subtle animations and 24-bit color support.
+
+## ⚠️ WARNING
+
+Always use `--dry-run` before making destructive/mutating changes to your system keybindings, as
+keegees is in version 0.0.1 and may contain bugs.
 
 ## ✨ Overview
 
-keegees provides a unified interface for GNOME keybinding management. Whether you're working with dconf format files or
-live gsettings, keegees delivers a consistent, safe, and visually appealing experience with production-ready functionality.
+keegees provides a unified interface for GNOME keybinding management from the CLI.
+
+We have made keegees use features available in modern terminals to provide a visually appealing
+experience.
 
 ### 🎯 Key Features
 
-- **Schema-Based Architecture** - Uses official GNOME keybinding schemas for 100% reliable detection
-- **System Integration** - Works directly with live system settings via gsettings/dconf
-- **Complete Reset Functionality** - Implements GNOME Settings "Reset All..." behavior using gsettings reset-recursively
+- **Schema-Based Architecture** - Uses official GNOME keybinding schemas for reliable detection of
+  keybinding entries in gsettings/dconf. However, we only support management of official Gnome keybinding
+  schemas and System Extensions.
+- **Query System Settings** - Use the `ls` subcommand to list all current active keybindings
+- **Complete Reset Functionality** - Implements the "Reset All..." settings from GNOME Settings,
+  using gsettings reset-recursively
 - **Safety First** - Dry-run mode, interactive confirmations, and comprehensive validation
 - **Beautiful Interface** - 24-bit color support, animations, and Unicode icons
-- **POSIX Compliant** - Works across different Unix-like systems using `bc` for arithmetic
+- **POSIX Compliant** - Uses `bc` (basic calculator) for arithmetic and avoids bash's surprising, unexpected
+  behaviors, such as early termination due to result arithmetic---`(( ... ))`---expressions, and other bashisms.
 - **Professional CLI** - Comprehensive help system and intuitive command structure
 - **Schema Organization** - Hierarchical display with empty schema filtering
 - **Error Resilience** - Graceful handling of missing schemas and invalid configurations
@@ -55,22 +68,22 @@ keegees --help
 ## 💻 CLI Usage
 
 ```
-╭─────────────────────────────────────────────────────────────────╮
-│                     🔮 KEYBIND MANAGER 🔮                       │
-│           GNOME keybinding management system                    │
-│                      Version 1.0.0                              │
-╰─────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│                                 🔮 KEEGEES 🔮                                │
+│                        GNOME keybinding management system                    │
+│                                  Version 1.0.0                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
 
 📖 Usage
   keybind <command> [options]
 
 🚀 Commands
-  ls     [--hide-empty-schemas] [--dry-run]       List keybindings
-  dump   <filename> [--force] [--dry-run]         Export keybindings to dconf format
-  sync   <filename> [--backup] [--dry-run]        Import keybindings from dconf format
+  ls     [--hide-empty-schemas] [--dry-run]        List keybindings
+  dump   <filename> [--force] [--dry-run]          Export keybindings to dconf format
+  sync   <filename> [--backup] [--dry-run]         Import keybindings from dconf format
   add    [--dry-run]                               Interactively add new keybinding
-  reset  [--schema] [--force] [--dry-run]         Reset keybindings to defaults
-  del    --schema <schema> --key <key> [options]  Delete existing keybinding
+  reset  [--schema] [--force] [--dry-run]          Reset keybindings to defaults
+  del    --schema <schema> --key <key> [options]   Delete existing keybinding
   help   [command]                                 Show help message
 
 ⚙️ Global Options
@@ -90,7 +103,7 @@ keegees --help
 
 ### `ls` - List Keybindings
 
-Display keybindings from live system settings with beautiful formatting and schema organization.
+Display keybindings from live system settings.
 
 <details>
 <summary>Flowchart</summary>
@@ -858,6 +871,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **[⭐ Star this project](https://github.com/nutthead/keegees)** • **[🐛 Report Issues](https://github.com/nutthead/keegees/issues)** • **[💡 Request Features](https://github.com/nutthead/keegees/discussions)**
 
-*Built with ❤️ and 🤖 for the GNOME community*
+_Built with ❤️ and 🤖 for the GNOME community_
 
 </div>
